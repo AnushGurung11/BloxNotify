@@ -1,0 +1,43 @@
+<noinclude>{{Stock History}}</noinclude>
+<tabber>
+January=
+{| class="article-table"
+|+January 2025 Stock History
+!
+!1/1/25
+!1/2/25
+|-
+|12:00 AM
+|Spring, Flame, Ice, '''[[Quake]]''', '''[[Dough]]'''
+|Blade, Flame, Light
+|-
+|4:00 AM
+|Blade
+|
+|-
+|8:00 AM
+|Spring, Bomb. Flame, '''[[Shadow]]'''
+|Spike, Ice
+|-
+|12:00 PM
+|Spike, '''[[Phoenix]]'''
+|Bomb, Dark
+|-
+|4:00 PM
+|Smoke, Light
+|Blade, Rubber
+|-
+|8:00 PM
+|Ice, Sand, Rubber, Ghost, Magma
+|Blade, Ghost
+|}
+February=
+{| class="article-table"
+|+February 2025 Stock History
+!
+!2/1/25
+|-
+|8:00 AM 
+|Smoke, Flame
+|}
+</tabber>

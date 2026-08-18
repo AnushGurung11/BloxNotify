@@ -8,6 +8,8 @@ const { createApp, DEFAULT_STOCK_FILE } = require('./app');
 const { createImageResolver } = require('./fruitImages');
 const { startPolling, checkStockOnce } = require('./poller');
 const { DEFAULT_TOPIC } = require('./notifier');
+const { createStockPredictor } = require('./stockPredictor');
+const { fetchHistoryWikitext } = require('./historyClient');
 
 const PORT = Number(process.env.PORT) || 3000;
 const stockFile = process.env.STOCK_FILE || DEFAULT_STOCK_FILE;
@@ -27,7 +29,11 @@ if (!credentialsJson && process.env.FIREBASE_SERVICE_ACCOUNT_FILE) {
 
 const imageResolver = createImageResolver({ axios });
 
-const app = createApp({ stockFile, imageResolver });
+const predictor = createStockPredictor({
+  fetchHistory: () => fetchHistoryWikitext({ axios }),
+});
+
+const app = createApp({ stockFile, imageResolver, predictor });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Blox Notify backend listening on :${PORT}`);
@@ -53,4 +59,8 @@ app.listen(PORT, '0.0.0.0', () => {
     console.error(`poller: initial seed failed: ${err.message}`);
   });
   startPolling(deps);
+
+  // Load the history model at boot and keep it fresh (wiki history pages are
+  // updated daily; the model tolerates stale data).
+  predictor.start();
 });
