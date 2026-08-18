@@ -1,0 +1,36 @@
+# Render Blueprint — deploys the backend from the GHCR image built by the
+# Deploy workflow. Render pulls the image from GitHub Container Registry.
+#
+# Before first deploy:
+#   1. Push this repo to GitHub and connect it to Render (Blueprints).
+#   2. In Render, connect the GitHub Container Registry (Dashboard →
+#      Connect a Registry → GitHub Container Registry) so private images
+#      can be pulled.
+#   3. Set the FIREBASE_SERVICE_ACCOUNT env var in the Render dashboard
+#      (paste the service account JSON as one line) — or mount it as a
+#      secret file and set FIREBASE_SERVICE_ACCOUNT_FILE to that path.
+#   4. The Deploy workflow calls the Render Deploy Hook URL — create it
+#      (Dashboard → this service → Deploy Hook) and store it as the
+#      RENDER_DEPLOY_HOOK_URL secret in GitHub.
+
+services:
+  - type: web
+    name: blox-notify-backend
+    runtime: image
+    image:
+      url: ghcr.io/YOUR_GITHUB_USERNAME/blox-notify-backend:latest
+    plan: free
+    healthCheckPath: /stock
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: POLL_INTERVAL_MS
+        value: 90000
+      - key: FCM_TOPIC
+        value: stock_updates
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+    # Note: the "last known stock" state file lives inside the container and
+    # resets on redeploy (the first poll after a restart records the current
+    # stock without issues). To persist it across redeploys, add a Render disk
+    # (paid plans only) mounted at /app/data and set STOCK_FILE accordingly.

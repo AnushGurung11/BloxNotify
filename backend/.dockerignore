@@ -1,0 +1,11 @@
+node_modules
+.env
+secrets
+data
+test
+scripts
+Dockerfile
+.dockerignore
+*.log
+.git
+.gitignore

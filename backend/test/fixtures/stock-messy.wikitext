@@ -1,0 +1,7 @@
+{{Stock/Header}}{{Stock/Main|Current= Dough ,KitSune, T-Rex |Last=One,Two|Before=Three,Four}}
+
+==Stock Editing Rules==
+{{Stock/Rules}}
+
+==Notes==
+{{Stock/Notes}}

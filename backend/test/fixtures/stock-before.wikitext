@@ -1,0 +1,26 @@
+{{Stock/Header}}{{Stock/Main
+|Current = Spring, Flame, Light
+|Last    = Blade, Dark, Spider
+|Before  = Blade, Ice, Mammoth
+}}
+
+==Stock Editing Rules==
+{{Stock/Rules}}
+
+==List of Blox Fruits==
+{{Stock/List}}
+
+==Notes==
+{{Stock/Notes}}
+
+==Time Zones==
+{{TimeZones}}
+
+==Navigation==
+{{MiscNav}}
+
+__NOTOC__
+__NOEDITSECTION__
+[[Category:Stock Pages]]
+[[Category:Game Mechanics]]
+[[Category:Community Pages]]
