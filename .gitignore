@@ -14,6 +14,7 @@ Desktop.ini
 **/secrets/
 **/*.keystore
 **/*.keystore.b64
+**/*.json.b64
 **/key.properties
 app/android/app/google-services.json
 
