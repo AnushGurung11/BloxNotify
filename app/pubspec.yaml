@@ -38,6 +38,8 @@ dependencies:
   firebase_messaging: ^16.5.0
   flutter_local_notifications: ^22.3.0
   firebase_core: ^4.13.0
+  url_launcher: ^6.3.2
+  package_info_plus: ^10.2.1
 
 dev_dependencies:
   flutter_test:

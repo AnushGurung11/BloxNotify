@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -10,6 +13,21 @@ plugins {
 if (file("google-services.json").exists()) {
     apply(plugin = "com.google.gms.google-services")
 }
+
+// Release signing. android/key.properties is local-only (gitignored); CI
+// provides the same values via secrets. Falls back to debug signing when
+// neither is present so the project always builds.
+val keyProps = Properties()
+val keyPropsFile = rootProject.file("key.properties")
+if (keyPropsFile.exists()) {
+    keyProps.load(FileInputStream(keyPropsFile))
+}
+
+val releaseStoreFile = System.getenv("ANDROID_STORE_FILE") ?: keyProps.getProperty("storeFile")
+val releaseStorePassword = System.getenv("ANDROID_STORE_PASSWORD") ?: keyProps.getProperty("storePassword")
+val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS") ?: keyProps.getProperty("keyAlias")
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD") ?: keyProps.getProperty("keyPassword")
+val resolvedStoreFile = releaseStoreFile?.let { file(it) }
 
 android {
     namespace = "com.bloxnotify.blox_notify"
@@ -34,9 +52,20 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            if (resolvedStoreFile != null && releaseStorePassword != null &&
+                releaseKeyAlias != null && releaseKeyPassword != null
+            ) {
+                signingConfig = signingConfigs.create("release") {
+                    keyAlias = releaseKeyAlias
+                    keyPassword = releaseKeyPassword
+                    storeFile = resolvedStoreFile
+                    storePassword = releaseStorePassword
+                }
+            } else {
+                // No keystore configured (no key.properties, no CI secrets) —
+                // fall back to debug signing so builds still succeed.
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 }

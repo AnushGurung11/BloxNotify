@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 
 import 'package:blox_notify/screens/stock_screen.dart';
 import 'package:blox_notify/services/stock_api.dart';
+import 'package:blox_notify/services/update_service.dart';
 
 StockApi _apiWith(MockClient client) => StockApi(
       client: client,
@@ -96,5 +97,73 @@ void main() {
     await pumpStockScreen(tester, api);
 
     expect(find.text('Could not load the stock'), findsOneWidget);
+  });
+
+  testWidgets('shows an update banner when a newer release exists',
+      (tester) async {
+    final api = _apiWith(_mockStockResponse(_fruits));
+    final updateService = UpdateService(
+      client: MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'tag_name': 'v1.0.1',
+            'body': 'notes',
+            'assets': [
+              {
+                'name': 'blox-notify-1.0.1+2.apk',
+                'browser_download_url':
+                    'https://example.com/blox-notify-1.0.1+2.apk',
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: StockScreen(
+        stockApi: api,
+        updateService: updateService,
+        versionProvider: () async => 1,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Update available'), findsOneWidget);
+    expect(find.text('Download'), findsOneWidget);
+  });
+
+  testWidgets('shows no update banner when the app is up to date',
+      (tester) async {
+    final api = _apiWith(_mockStockResponse(_fruits));
+    final updateService = UpdateService(
+      client: MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'tag_name': 'v1.0.0',
+            'assets': [
+              {
+                'name': 'blox-notify-1.0.0+1.apk',
+                'browser_download_url':
+                    'https://example.com/blox-notify-1.0.0+1.apk',
+              },
+            ],
+          }),
+          200,
+        );
+      }),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      home: StockScreen(
+        stockApi: api,
+        updateService: updateService,
+        versionProvider: () async => 1,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Update available'), findsNothing);
   });
 }

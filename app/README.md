@@ -51,14 +51,33 @@ flutter test integration_test -d <device-id>
 
 ## Release build
 
-```bash
-keytool -genkey -v -keystore release.keystore -keyalg RSA -keysize 2048 -validity 10000 -alias blox-notify
-```
-
-Wire the keystore into `android/app/build.gradle.kts` (replace the debug-signing block in `buildTypes.release`), then:
+The release build is signed with a real keystore (`android/app/release.keystore` + `android/key.properties` — both gitignored). With no keystore present, the build falls back to debug signing so it always compiles.
 
 ```bash
-flutter build apk --release --dart-define=API_BASE_URL=https://your-backend.example.com
+flutter build apk --release --dart-define=API_BASE_URL=https://bloxnotify.onrender.com
 ```
 
 The APK is sideloaded — enable "install unknown apps" on the test device.
+
+## Publishing updates (GitHub Releases + in-app updater)
+
+Push a version tag and the Release workflow (`.github/workflows/release.yml`) builds the signed APK and publishes it as a GitHub Release:
+
+```bash
+# 1. bump the version in pubspec.yaml, e.g. version: 1.0.1+2 (name+versionCode)
+# 2. commit and push
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+Required GitHub secrets (repo → Settings → Secrets and variables → Actions):
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64` of `android/app/release.keystore` |
+| `ANDROID_STORE_PASSWORD` | keystore password (in your local `key.properties`) |
+| `ANDROID_KEY_PASSWORD` | key password (same) |
+| `ANDROID_KEY_ALIAS` | `blox-notify` |
+| `GOOGLE_SERVICES_JSON` | `base64` of `android/app/google-services.json` |
+
+Users with an installed app get an **"Update available"** banner on launch (checks the GitHub Releases API), with a Download button. Version bumps in `pubspec.yaml` must increase the build number (`+N`) so Android treats it as an update.

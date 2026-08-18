@@ -1,13 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/fruit.dart';
 import '../services/stock_api.dart';
+import '../services/update_service.dart';
 
 /// Shows the current stock as a grid of fruit cards with pull-to-refresh.
 class StockScreen extends StatefulWidget {
-  const StockScreen({super.key, required this.stockApi});
+  const StockScreen({
+    super.key,
+    required this.stockApi,
+    this.updateService,
+    this.versionProvider,
+  });
 
   final StockApi stockApi;
+
+  /// Injectable for tests; defaults to the real GitHub Releases check.
+  final UpdateService? updateService;
+
+  /// Injectable for tests; defaults to the installed app's versionCode via
+  /// package_info_plus.
+  final Future<int?> Function()? versionProvider;
 
   @override
   State<StockScreen> createState() => _StockScreenState();
@@ -15,11 +30,54 @@ class StockScreen extends StatefulWidget {
 
 class _StockScreenState extends State<StockScreen> {
   late Future<StockSnapshot> _future;
+  late final UpdateService _updateService;
+  bool _updateChecked = false;
 
   @override
   void initState() {
     super.initState();
     _future = widget.stockApi.fetchCurrentStock();
+    _updateService = widget.updateService ?? UpdateService();
+    _checkForUpdate();
+  }
+
+  Future<void> _checkForUpdate() async {
+    if (_updateChecked) return;
+    _updateChecked = true;
+    try {
+      final installedVersion = await (widget.versionProvider ??
+          () async {
+            final info = await PackageInfo.fromPlatform();
+            return int.tryParse(info.buildNumber);
+          })();
+      if (installedVersion == null) return;
+
+      final update = await _updateService.checkForUpdate(installedVersion);
+      if (update != null && mounted) {
+        _showUpdateBanner(update);
+      }
+    } catch (_) {
+      // version lookup or update check failed — skip silently
+    }
+  }
+
+  void _showUpdateBanner(AppUpdate update) {
+    ScaffoldMessenger.of(context).showMaterialBanner(MaterialBanner(
+      content: Text('Update available: v${update.versionName}'),
+      leading: const Icon(Icons.system_update_alt),
+      actions: [
+        TextButton(
+          onPressed: () => launchUrl(Uri.parse(update.downloadUrl),
+              mode: LaunchMode.externalApplication),
+          child: const Text('Download'),
+        ),
+        TextButton(
+          onPressed: () =>
+              ScaffoldMessenger.of(context).hideCurrentMaterialBanner(),
+          child: const Text('Dismiss'),
+        ),
+      ],
+    ));
   }
 
   Future<void> _refresh() async {
