@@ -18,6 +18,10 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # Secrets are not available in step-level `if` conditions, so the hook
+      # URL is mapped to an env var at job level and referenced via env.
+      RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +47,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trigger Render deploy
-        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        if: ${{ env.RENDER_DEPLOY_HOOK_URL != '' }}
         run: |
-          curl -f -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          curl -f -X POST "$RENDER_DEPLOY_HOOK_URL"
         shell: bash
