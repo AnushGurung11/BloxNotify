@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/fruit.dart';
+import '../models/prediction.dart';
 import '../services/stock_api.dart';
 import '../services/update_service.dart';
 
@@ -41,13 +42,19 @@ class StockScreen extends StatefulWidget {
 
 class _StockScreenState extends State<StockScreen> {
   late Future<StockSnapshot> _future;
+  late Future<PredictionResult?> _predictionsFuture;
   late final UpdateService _updateService;
   bool _updateChecked = false;
+
+  /// Fetches predictions; failures are swallowed — the section simply hides.
+  Future<PredictionResult?> _fetchPredictionsSafely() =>
+      widget.stockApi.fetchPredictions().catchError((_) => null);
 
   @override
   void initState() {
     super.initState();
     _future = widget.stockApi.fetchCurrentStock();
+    _predictionsFuture = _fetchPredictionsSafely();
     _updateService = widget.updateService ?? UpdateService();
     _checkForUpdate();
   }
@@ -93,7 +100,11 @@ class _StockScreenState extends State<StockScreen> {
 
   Future<void> _refresh() async {
     final future = widget.stockApi.fetchCurrentStock();
-    setState(() => _future = future);
+    final predictionsFuture = _fetchPredictionsSafely();
+    setState(() {
+      _future = future;
+      _predictionsFuture = predictionsFuture;
+    });
     try {
       await future;
     } catch (_) {
@@ -102,7 +113,10 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   void _reload() {
-    setState(() => _future = widget.stockApi.fetchCurrentStock());
+    setState(() {
+      _future = widget.stockApi.fetchCurrentStock();
+      _predictionsFuture = _fetchPredictionsSafely();
+    });
   }
 
   @override
@@ -122,7 +136,11 @@ class _StockScreenState extends State<StockScreen> {
           if (stock.isEmpty) {
             return _EmptyView(onRetry: _reload);
           }
-          return _StockView(stock: stock, onRefresh: _refresh);
+          return _StockView(
+            stock: stock,
+            onRefresh: _refresh,
+            predictions: _predictionsFuture,
+          );
         },
       ),
     );
@@ -130,10 +148,15 @@ class _StockScreenState extends State<StockScreen> {
 }
 
 class _StockView extends StatelessWidget {
-  const _StockView({required this.stock, required this.onRefresh});
+  const _StockView({
+    required this.stock,
+    required this.onRefresh,
+    required this.predictions,
+  });
 
   final StockSnapshot stock;
   final Future<void> Function() onRefresh;
+  final Future<PredictionResult?> predictions;
 
   @override
   Widget build(BuildContext context) {
@@ -160,6 +183,19 @@ class _StockView extends StatelessWidget {
               ],
             ),
           ),
+          FutureBuilder<PredictionResult?>(
+            future: predictions,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const SizedBox.shrink();
+              }
+              final result = snapshot.data;
+              if (result == null || result.predictions.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return _PredictionsSection(result: result);
+            },
+          ),
           if (stock.history.isNotEmpty) ...[
             const SizedBox(height: 24),
             Text('Stock History', style: theme.textTheme.titleMedium),
@@ -167,6 +203,113 @@ class _StockView extends StatelessWidget {
             for (final entry in stock.history) _HistoryTile(entry: entry),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _PredictionsSection extends StatelessWidget {
+  const _PredictionsSection({required this.result});
+
+  final PredictionResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final rating = result.rating;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Text('Predicted Next Stock', style: theme.textTheme.titleMedium),
+        if (result.nextResetAt != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            'Next rotation: ${formatStockTimestamp(result.nextResetAt!)}',
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+        const SizedBox(height: 4),
+        Text(
+          'Based on ${_rotationsLabel(rating)} of wiki stock history',
+          style: theme.textTheme.bodySmall,
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (i, p) in result.predictions.indexed)
+              _PredictionChip(rank: i + 1, prediction: p),
+          ],
+        ),
+        if (rating != null) ...[
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Icon(Icons.speed, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Model rating: ${rating.top3Accuracy.toStringAsFixed(1)}% '
+                  'top-3 accuracy '
+                  '(${rating.top1Accuracy.toStringAsFixed(1)}% top-1, '
+                  '${rating.testedRotations} rotations backtested)',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  String _rotationsLabel(PredictionRating? rating) {
+    if (rating == null || rating.testedRotations == 0) return '';
+    final n = rating.testedRotations;
+    if (n < 1000) return '$n';
+    return '${((n / 1000) * 10).floor() / 10}k';
+  }
+}
+
+class _PredictionChip extends StatelessWidget {
+  const _PredictionChip({required this.rank, required this.prediction});
+
+  final int rank;
+  final FruitPrediction prediction;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final confidence = (prediction.confidence * 100).clamp(0, 100);
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '#$rank ${prediction.name}',
+              style: theme.textTheme.titleSmall,
+            ),
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: confidence / 100,
+                minHeight: 4,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '${confidence.toStringAsFixed(0)}% confidence',
+              style: theme.textTheme.labelSmall,
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -15,8 +15,17 @@ StockApi _apiWith(MockClient client) => StockApi(
     );
 
 MockClient _mockStockResponse(List<Map<String, dynamic>> fruits,
-    {String? updatedAt, List<Map<String, dynamic>>? history}) {
+    {String? updatedAt,
+    List<Map<String, dynamic>>? history,
+    Map<String, dynamic>? predictions}) {
   return MockClient((request) async {
+    if (request.url.path.endsWith('/stock/predictions')) {
+      return http.Response(
+        jsonEncode(predictions ?? {'ready': false}),
+        200,
+        headers: {'content-type': 'application/json'},
+      );
+    }
     return http.Response(
       jsonEncode({'fruits': fruits, 'updatedAt': updatedAt, 'history': history ?? const []}),
       200,
@@ -96,6 +105,46 @@ void main() {
     await pumpStockScreen(tester, api);
 
     expect(find.text('Stock History'), findsNothing);
+  });
+
+  testWidgets('renders predictions with confidence and model rating',
+      (tester) async {
+    final api = _apiWith(_mockStockResponse(
+      _fruits,
+      predictions: {
+        'ready': true,
+        'nextResetAt': 1784505600000,
+        'predictions': [
+          {'name': 'Dough', 'confidence': 0.31},
+          {'name': 'Venom', 'confidence': 0.22},
+        ],
+        'rating': {
+          'top1Accuracy': 32.3,
+          'top3Accuracy': 63.2,
+          'testedRotations': 10972,
+        },
+      },
+    ));
+
+    await pumpStockScreen(tester, api);
+
+    expect(find.text('Predicted Next Stock'), findsOneWidget);
+    expect(find.text('#1 Dough'), findsOneWidget);
+    expect(find.text('#2 Venom'), findsOneWidget);
+    expect(find.textContaining('31% confidence'), findsOneWidget);
+    expect(find.textContaining('Model rating: 63.2%'), findsOneWidget);
+    expect(find.textContaining('10972 rotations backtested'), findsOneWidget);
+    expect(find.textContaining('Based on 10.9k'), findsOneWidget);
+    expect(find.textContaining('Next rotation:'), findsOneWidget);
+  });
+
+  testWidgets('hides predictions when the backend has no model',
+      (tester) async {
+    final api = _apiWith(_mockStockResponse(_fruits, predictions: {'ready': false}));
+
+    await pumpStockScreen(tester, api);
+
+    expect(find.text('Predicted Next Stock'), findsNothing);
   });
 
   test('formatStockTimestamp uses a 12-hour clock', () {
