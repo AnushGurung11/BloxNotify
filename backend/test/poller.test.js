@@ -35,15 +35,14 @@ describe('checkStockOnce', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  test('stores and notifies when the stock changed', async () => {
+  test('records the first stock silently, then notifies on a real change', async () => {
     const axios = makeAxios(fixture('stock-before.wikitext'));
     const result = await checkStockOnce({ axios, stockFile, log: { info() {}, error() {} } });
 
     expect(result.changed).toBe(true);
     expect(result.fruits).toEqual(['Spring', 'Flame', 'Light']);
-    expect(notifyStockChange).toHaveBeenCalledWith(
-      expect.objectContaining({ fruits: ['Spring', 'Flame', 'Light'] })
-    );
+    // First record is a seed after (re)start — no notification.
+    expect(notifyStockChange).not.toHaveBeenCalled();
 
     const second = await checkStockOnce({
       axios: makeAxios(fixture('stock-after.wikitext')),
@@ -52,6 +51,9 @@ describe('checkStockOnce', () => {
     });
     expect(second.changed).toBe(true);
     expect(second.fruits).toEqual(['Blade', 'Ice', 'Mammoth']);
+    expect(notifyStockChange).toHaveBeenCalledWith(
+      expect.objectContaining({ fruits: ['Blade', 'Ice', 'Mammoth'] })
+    );
   });
 
   test('does nothing when the stock is unchanged', async () => {

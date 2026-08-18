@@ -6,7 +6,7 @@ const fs = require('fs');
 const axios = require('axios');
 const { createApp, DEFAULT_STOCK_FILE } = require('./app');
 const { createImageResolver } = require('./fruitImages');
-const { startPolling } = require('./poller');
+const { startPolling, checkStockOnce } = require('./poller');
 const { DEFAULT_TOPIC } = require('./notifier');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -37,12 +37,20 @@ app.listen(PORT, '0.0.0.0', () => {
   }
 
   console.log(`Polling started (interval: ${pollIntervalMs || 'default 90000ms'}, topic: ${topic})`);
-  startPolling({
+
+  // Seed the stock immediately so /stock is populated right after boot
+  // instead of waiting up to one poll interval (the seed is recorded
+  // silently, without a notification).
+  const deps = {
     axios,
     stockFile,
     credentialsJson,
     topic,
     imageResolver,
     pollIntervalMs,
+  };
+  checkStockOnce(deps).catch((err) => {
+    console.error(`poller: initial seed failed: ${err.message}`);
   });
+  startPolling(deps);
 });

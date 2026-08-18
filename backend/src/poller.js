@@ -54,13 +54,17 @@ async function checkStockOnce(deps) {
   log.info(`poller: stock changed ${previous.fruits.join(', ') || '(none)'} -> ${fruits.join(', ')}`);
   const record = stockStore.writeStock({ fruits }, deps.stockFile);
 
-  await notifyStockChange({
-    fruits,
-    previousFruits: previous.fruits,
-    topic: deps.topic,
-    credentialsJson: deps.credentialsJson,
-    resolver: deps.imageResolver,
-  });
+  // The first record after a (re)start is just a seed — there is no previous
+  // state to compare against, so no notification is sent for it.
+  if (previous.fruits.length > 0) {
+    await notifyStockChange({
+      fruits,
+      previousFruits: previous.fruits,
+      topic: deps.topic,
+      credentialsJson: deps.credentialsJson,
+      resolver: deps.imageResolver,
+    });
+  }
 
   return { changed: true, fruits, record };
 }
