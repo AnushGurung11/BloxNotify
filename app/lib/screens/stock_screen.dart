@@ -6,7 +6,18 @@ import '../models/fruit.dart';
 import '../services/stock_api.dart';
 import '../services/update_service.dart';
 
-/// Shows the current stock as a grid of fruit cards with pull-to-refresh.
+/// Formats a timestamp as `2026-08-18 08:15 PM` (12-hour clock, local time).
+String formatStockTimestamp(DateTime dt) {
+  final local = dt.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final ampm = local.hour < 12 ? 'AM' : 'PM';
+  final mm = local.minute.toString().padLeft(2, '0');
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  return '${local.year}-$month-$day $hour:$mm $ampm';
+}
+
+/// Shows the current stock as a compact single row plus the stock history.
 class StockScreen extends StatefulWidget {
   const StockScreen({
     super.key,
@@ -111,15 +122,15 @@ class _StockScreenState extends State<StockScreen> {
           if (stock.isEmpty) {
             return _EmptyView(onRetry: _reload);
           }
-          return _StockGrid(stock: stock, onRefresh: _refresh);
+          return _StockView(stock: stock, onRefresh: _refresh);
         },
       ),
     );
   }
 }
 
-class _StockGrid extends StatelessWidget {
-  const _StockGrid({required this.stock, required this.onRefresh});
+class _StockView extends StatelessWidget {
+  const _StockView({required this.stock, required this.onRefresh});
 
   final StockSnapshot stock;
   final Future<void> Function() onRefresh;
@@ -130,80 +141,90 @@ class _StockGrid extends StatelessWidget {
     final updatedAt = stock.updatedAt;
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: CustomScrollView(
+      child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Text(
-                updatedAt == null
-                    ? 'Never updated'
-                    : 'Last updated: ${_formatTimestamp(updatedAt)}',
-                style: theme.textTheme.bodySmall,
-              ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        children: [
+          Text(
+            updatedAt == null
+                ? 'Never updated'
+                : 'Last updated: ${formatStockTimestamp(updatedAt)}',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 12),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final fruit in stock.fruits) _FruitTile(fruit: fruit),
+              ],
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.all(12),
-            sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 0.9,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (context, index) => _FruitCard(fruit: stock.fruits[index]),
-                childCount: stock.fruits.length,
-              ),
-            ),
-          ),
+          if (stock.history.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            Text('Stock History', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final entry in stock.history) _HistoryTile(entry: entry),
+          ],
         ],
       ),
     );
   }
-
-  String _formatTimestamp(DateTime dt) {
-    final local = dt.toLocal();
-    final hh = local.hour.toString().padLeft(2, '0');
-    final mm = local.minute.toString().padLeft(2, '0');
-    return '${local.year}-${local.month.toString().padLeft(2, '0')}-'
-        '${local.day.toString().padLeft(2, '0')} $hh:$mm';
-  }
 }
 
-class _FruitCard extends StatelessWidget {
-  const _FruitCard({required this.fruit});
+class _FruitTile extends StatelessWidget {
+  const _FruitTile({required this.fruit});
 
   final Fruit fruit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Card(
-      clipBehavior: Clip.antiAlias,
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: fruit.imageUrl != null
-                ? Image.network(
-                    fruit.imageUrl!,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => const _NoImage(),
-                  )
-                : const _NoImage(),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Text(
-              fruit.name,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium,
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: 72,
+              height: 72,
+              child: fruit.imageUrl != null
+                  ? Image.network(
+                      fruit.imageUrl!,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => const _NoImage(),
+                    )
+                  : const _NoImage(),
             ),
           ),
+          const SizedBox(height: 6),
+          Text(fruit.name, style: theme.textTheme.bodyMedium),
         ],
+      ),
+    );
+  }
+}
+
+class _HistoryTile extends StatelessWidget {
+  const _HistoryTile({required this.entry});
+
+  final StockHistoryEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final when = entry.updatedAt == null
+        ? 'Unknown time'
+        : formatStockTimestamp(entry.updatedAt!);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        dense: true,
+        leading: Icon(Icons.history, color: theme.colorScheme.primary),
+        title: Text(entry.fruits.join(', ')),
+        subtitle: Text(when),
       ),
     );
   }
@@ -217,7 +238,7 @@ class _NoImage extends StatelessWidget {
     return ColoredBox(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       child: const Center(
-        child: Icon(Icons.image_not_supported_outlined, size: 40),
+        child: Icon(Icons.image_not_supported_outlined, size: 32),
       ),
     );
   }

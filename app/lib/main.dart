@@ -1,5 +1,6 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'screens/onboarding_screen.dart';
 import 'screens/stock_screen.dart';
@@ -32,9 +33,13 @@ class BloxNotifyApp extends StatefulWidget {
 }
 
 class _BloxNotifyAppState extends State<BloxNotifyApp> {
+  static const _onboardedKey = 'onboarded';
+
   late final PushService _pushService;
   late final StockApi _stockApi;
-  bool _onboarded = false;
+
+  /// null while the persisted flag is being read.
+  bool? _onboarded;
 
   @override
   void initState() {
@@ -42,10 +47,26 @@ class _BloxNotifyAppState extends State<BloxNotifyApp> {
     _pushService = widget.pushService ?? FcmService();
     _stockApi = widget.stockApi ?? StockApi();
     _pushService.init();
+    _loadOnboardedFlag();
+  }
+
+  Future<void> _loadOnboardedFlag() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() => _onboarded = prefs.getBool(_onboardedKey) ?? false);
+  }
+
+  /// Marks onboarding as done so it shows only once, ever.
+  Future<void> _finishOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_onboardedKey, true);
+    if (!mounted) return;
+    setState(() => _onboarded = true);
   }
 
   @override
   Widget build(BuildContext context) {
+    final onboarded = _onboarded;
     return MaterialApp(
       title: 'Blox Notify',
       theme: ThemeData(
@@ -53,12 +74,14 @@ class _BloxNotifyAppState extends State<BloxNotifyApp> {
         useMaterial3: true,
         brightness: Brightness.dark,
       ),
-      home: _onboarded
-          ? StockScreen(stockApi: _stockApi)
-          : OnboardingScreen(
-              pushService: _pushService,
-              onDone: () => setState(() => _onboarded = true),
-            ),
+      home: onboarded == null
+          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
+          : onboarded
+              ? StockScreen(stockApi: _stockApi)
+              : OnboardingScreen(
+                  pushService: _pushService,
+                  onDone: _finishOnboarding,
+                ),
     );
   }
 }

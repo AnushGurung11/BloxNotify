@@ -15,10 +15,10 @@ StockApi _apiWith(MockClient client) => StockApi(
     );
 
 MockClient _mockStockResponse(List<Map<String, dynamic>> fruits,
-    {String? updatedAt}) {
+    {String? updatedAt, List<Map<String, dynamic>>? history}) {
   return MockClient((request) async {
     return http.Response(
-      jsonEncode({'fruits': fruits, 'updatedAt': updatedAt}),
+      jsonEncode({'fruits': fruits, 'updatedAt': updatedAt, 'history': history ?? const []}),
       200,
       headers: {'content-type': 'application/json'},
     );
@@ -57,6 +57,60 @@ void main() {
     await pumpStockScreen(tester, api);
 
     expect(find.textContaining('Last updated:'), findsOneWidget);
+  });
+
+  testWidgets('renders the stock history with timestamps', (tester) async {
+    final api = _apiWith(_mockStockResponse(
+      _fruits,
+      history: [
+        {
+          'fruits': ['Ice', 'Venom'],
+          'updatedAt': '2026-08-18T12:30:00.000Z',
+        },
+        {
+          'fruits': ['Portal'],
+          'updatedAt': '2026-08-18T08:00:00.000Z',
+        },
+      ],
+    ));
+
+    await pumpStockScreen(tester, api);
+
+    expect(find.text('Stock History'), findsOneWidget);
+    expect(find.text('Ice, Venom'), findsOneWidget);
+    expect(find.text('Portal'), findsOneWidget);
+    // times render through formatStockTimestamp (12-hour clock, local time)
+    expect(
+      find.text(formatStockTimestamp(DateTime.parse('2026-08-18T12:30:00.000Z'))),
+      findsOneWidget,
+    );
+    expect(
+      find.text(formatStockTimestamp(DateTime.parse('2026-08-18T08:00:00.000Z'))),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('hides the history section when there is none', (tester) async {
+    final api = _apiWith(_mockStockResponse(_fruits));
+
+    await pumpStockScreen(tester, api);
+
+    expect(find.text('Stock History'), findsNothing);
+  });
+
+  test('formatStockTimestamp uses a 12-hour clock', () {
+    expect(
+      formatStockTimestamp(DateTime(2026, 8, 18, 12, 0)),
+      '2026-08-18 12:00 PM',
+    );
+    expect(
+      formatStockTimestamp(DateTime(2026, 8, 18, 0, 30)),
+      '2026-08-18 12:30 AM',
+    );
+    expect(
+      formatStockTimestamp(DateTime(2026, 8, 18, 23, 5)),
+      '2026-08-18 11:05 PM',
+    );
   });
 
   testWidgets('shows a sensible empty state when no stock is recorded',

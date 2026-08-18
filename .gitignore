@@ -26,3 +26,5 @@ node_modules/
 
 # ---- Local scratch files ----
 scratch/
+# Private planning document
+VISION.md
