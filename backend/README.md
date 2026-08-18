@@ -13,10 +13,18 @@ Polling service that watches the [Blox Fruits wiki stock page](https://blox-frui
                               ↓ changed?
                           (no → do nothing)
                               ↓ yes
-             [update state file] → [notifier: FCM topic push + fruit images]
+         [update state file: new stock + previous snapshot
+          appended to history (max 50, newest first)]
+                              ↓
+              [notifier: FCM topic push + fruit images]
 ```
 
-Separately, `GET /stock` serves the last-known stock (with resolved fruit image URLs) for the Flutter app.
+On startup the backend seeds the current stock from the wiki **silently** (no
+notification), so the service is useful immediately after a restart without
+spamming subscribers.
+
+Separately, `GET /stock` serves the last-known stock (with resolved fruit image
+URLs) plus the stock history for the Flutter app.
 
 ## Requirements
 
@@ -47,7 +55,7 @@ npm run dev        # auto-restart on changes (Node >= 18 --watch)
 
 ### `GET /stock`
 
-Returns the last-known stock:
+Returns the last-known stock plus history:
 
 ```json
 {
@@ -55,11 +63,16 @@ Returns the last-known stock:
     { "name": "Spring", "imageUrl": "https://static.wikia.nocookie.net/..." },
     { "name": "Flame",  "imageUrl": "https://static.wikia.nocookie.net/..." }
   ],
-  "updatedAt": "2026-08-18T14:43:01.005Z"
+  "updatedAt": "2026-08-18T14:43:01.005Z",
+  "history": [
+    { "fruits": ["Ice", "Venom"], "updatedAt": "2026-08-18T12:30:00.000Z" }
+  ]
 }
 ```
 
-An empty `fruits` array means no stock has been recorded yet.
+- `history` holds up to 50 previous stock snapshots, **newest first** (fruit
+  names only, no images).
+- An empty `fruits` array means no stock has been recorded yet.
 
 ## Tests
 
@@ -68,10 +81,10 @@ npm test
 ```
 
 - `stockParser` — unit tests against wikitext fixtures in `test/fixtures/`
-- `stockStore` — read/write round-trip on temp files
+- `stockStore` — read/write round-trip on temp files, history append/cap logic
 - `notifier` — payload shape + send behaviour with a mocked `firebase-admin`
 - `poller` — full poll cycle orchestration (mock wiki + notifier)
-- `stock.route` — Supertest integration test for `GET /stock`
+- `stock.route` — Supertest integration test for `GET /stock` (incl. `history`)
 
 All tests run offline, no network or Firebase credentials needed.
 

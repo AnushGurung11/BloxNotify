@@ -83,7 +83,7 @@ Every **90 seconds** (configurable via `POLL_INTERVAL_MS`) `node-cron` runs one 
 | **Parse** | `src/stockParser.js` | Extracts the `Current` field from the `{{Stock/Main |Current = ...}}` template via regex, e.g. `Spring, Flame, Light` → `["Spring", "Flame", "Light"]` |
 | **Diff** | `src/stockStore.js` | Compares against the last-known stock persisted in `data/last-known-stock.json` |
 | **Notify** | `src/notifier.js` | If the list changed, sends an FCM topic broadcast (see below) |
-| **Persist** | `src/stockStore.js` | Writes the new stock + timestamp to the state file |
+| **Persist** | `src/stockStore.js` | Writes the new stock + timestamp to the state file and pushes the previous snapshot onto `history` (capped at 50, newest first) |
 
 Safety guard: if a poll parses an **empty** stock list, the cycle is aborted instead of treating it as a change (protects against transient wiki/API failures).
 
@@ -96,7 +96,7 @@ Fruit icons live on the wiki as `<FruitName>_Fruit.png` (e.g. `Spring_Fruit.png`
 | Endpoint | Response |
 |---|---|
 | `GET /` | JSON with stock summary (default Express route behaviour) |
-| `GET /stock` | `{ "fruits": [ { "name": "Spring", "imageUrl": "..." }, ... ], "updatedAt": "ISO-8601" }` — last known stock enriched with image URLs; `updatedAt` is the moment the wiki change was recorded |
+| `GET /stock` | `{ "fruits": [ { "name": "Spring", "imageUrl": "..." }, ... ], "updatedAt": "ISO-8601", "history": [ { "fruits": ["Ice", "Venom"], "updatedAt": "ISO-8601" }, ... ] }` — last known stock enriched with image URLs plus up to 50 previous snapshots (newest first); `updatedAt` is the moment the wiki change was recorded |
 
 The health check used by Render points at `GET /stock`.
 
@@ -137,18 +137,25 @@ A single-package app (`com.bloxnotify.blox_notify`, minSdk 23, Android-only in v
 
 ```mermaid
 flowchart LR
-    START["App start"] --> ONB["Onboarding<br/>permission prompt + topic subscribe"]
+    START["App start"] --> FLAG{"onboarded?<br/>(SharedPreferences)"}
+    FLAG -->|no, once| ONB["Onboarding<br/>permission prompt + topic subscribe"]
     ONB --> STOCK["Stock screen"]
-    STOCK --> GRID["Fruit grid<br/>images + names"]
+    FLAG -->|yes| STOCK
+    STOCK --> ROW["Stock row<br/>compact, images + names"]
+    STOCK --> HISTORY["Stock History<br/>12-hour timestamps"]
     STOCK --> REFRESH["Pull-to-refresh<br/>GET /stock"]
     STOCK --> BANNER{"Update available?"}
     BANNER -->|yes| DL["MaterialBanner<br/>'Download' → url_launcher"]
-    BANNER -->|no| GRID
+    BANNER -->|no| ROW
 ```
 
-1. **Onboarding** (`lib/screens/onboarding_screen.dart`) — explains the app, requests notification permission, then subscribes the device to the FCM `stock_updates` topic via `firebase_messaging`.
-2. **Stock screen** (`lib/screens/stock_screen.dart`) — fetches `GET {apiBase}/stock`, renders the fruit grid with images, and supports pull-to-refresh. A **MaterialBanner** appears when a newer APK exists; tapping *Download* opens the GitHub Release asset in the browser via `url_launcher`.
+1. **Onboarding** (`lib/screens/onboarding_screen.dart`) — explains the app, requests notification permission, then subscribes the device to the FCM `stock_updates` topic via `firebase_messaging`. The "done" flag is persisted with `shared_preferences`, so the prompt shows **exactly once, ever** — not on every launch.
+2. **Stock screen** (`lib/screens/stock_screen.dart`) — fetches `GET {apiBase}/stock`, renders the current stock as a **compact single row** of fruit tiles (72px images + names), then a **Stock History** list of the previous rotations with **12-hour timestamps** (`2026-08-18 08:15 PM`), and supports pull-to-refresh. A **MaterialBanner** appears when a newer APK exists; tapping *Download* opens the GitHub Release asset in the browser via `url_launcher`.
 3. **Background handling** (`lib/services/fcm_service.dart`) — a top-level background handler converts incoming FCM messages into a **big-picture notification** (first fruit image + changed list) using `flutter_local_notifications`, so a change is visible even with the app closed. A `PushService` abstraction keeps the UI testable.
+
+### Launcher icon
+
+A custom Blox Fruits-style icon (devil fruit on a dark navy tile, generated from `assets/icon/icon.png` + `assets/icon/icon_foreground.png`) is applied to all mipmap densities and as an adaptive icon (`adaptive_icon_background: "#121628"`) via `flutter_launcher_icons`.
 
 ### Update check (`lib/services/update_service.dart`)
 
@@ -181,18 +188,22 @@ Backend poll (every 90s) ──► parse Current ──► differs from last-kno
         │                                  │
         │ no: log "stock unchanged"        │ yes
         ▼                                  ▼
-   wait 90s                      persist new stock
-                                   │
-                                   ▼
-                         FCM topic message "stock_updates"
-                                   │
-                                   ▼
-                         Every subscribed device (even
-                         with the app closed) shows the
-                         big-picture "Stock Updated!" push
+   wait 90s                      persist new stock + append
+                                    previous stock to history
+                                    │
+                                    ▼
+                          FCM topic message "stock_updates"
+                                    │
+                                    ▼
+                          Every subscribed device shows the
+                          "Stock Updated!" push — delivered by
+                          the Android system itself, so it
+                          arrives even with the app closed
+                          or force-stopped (no background
+                          service needed)
 ```
 
-The end-to-end latency is the poll interval + wiki latency: **at most ~90 seconds** after the wiki page changes.
+The end-to-end latency is the poll interval + wiki latency: **at most ~90 seconds** after the wiki page changes. When the app is in the foreground/background the big-picture notification is rendered by the app; when it is terminated the system shows the standard notification from the push payload.
 
 ---
 
@@ -280,8 +291,8 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 
 | Suite | Command | Coverage |
 |---|---|---|
-| Backend (Jest + Supertest) | `cd backend && npm test` | 29 tests — wiki client, parser (incl. edge cases), poller diff/notify logic, stock store, `/stock` route, image resolver, cron conversion |
-| App (Flutter) | `cd app && flutter test` | 14 tests — stock grid rendering, API service, FCM service, onboarding, **update service + banner logic** (injectable `updateService` / `versionProvider`) |
+| Backend (Jest + Supertest) | `cd backend && npm test` | 31 tests — wiki client, parser (incl. edge cases), poller diff/notify logic, stock store (incl. history), `/stock` route, image resolver, cron conversion |
+| App (Flutter) | `cd app && flutter test` | 17 tests — stock row + history rendering, 12-hour time formatting, API service, FCM service, onboarding, **update service + banner logic** (injectable `updateService` / `versionProvider`) |
 | App static analysis | `cd app && flutter analyze` | zero issues |
 | E2E (emulator) | `cd app && flutter test integration_test` | full app flow on a real Android emulator |
 
@@ -302,8 +313,8 @@ CI runs the backend and Flutter suites on every push.
 ## Limitations
 
 - **Notification speed is capped by wiki editors** — this app broadcasts what the wiki says; it cannot see the game itself.
-- The backend state file lives inside the container and resets on redeploy (the first poll after a restart records the current stock without spamming users). Persisting across redeploys requires a Render disk (paid plans).
-- v1 covers the **stock dealer only** — Mirage and Advanced dealer stock are out of scope.
+- The backend state file (current stock **and** history) lives inside the container and resets on redeploy. On restart the backend seeds the current stock silently (no notification spam) and history starts empty again. Persisting across redeploys requires a Render disk (paid plans).
+- v1 covers the **stock dealer only** — Mirage and Advanced dealer stock are out of scope (see `VISION.md`, a gitignored planning doc).
 - Android-only for now (no iOS build), distributed via GitHub Releases — not on the Play Store.
 - One notification per stock change (topic broadcast) — no per-user accounts or preferences yet.
 
@@ -318,23 +329,24 @@ CI runs the backend and Flutter suites on every push.
 │   │   ├── app.js               # Express app factory (testable, no side effects)
 │   │   ├── wikiClient.js        # MediaWiki API client (wikitext fetch)
 │   │   ├── stockParser.js       # wikitext → fruit list
-│   │   ├── stockStore.js        # state file read/write
+│   │   ├── stockStore.js        # state file read/write (stock + history)
 │   │   ├── poller.js            # node-cron loop + diff + notify
 │   │   ├── notifier.js          # FCM topic broadcasts
 │   │   ├── fruitImages.js       # imageinfo API resolution + cache
-│   │   └── routes/stock.js      # GET /stock
+│   │   └── routes/stock.js      # GET /stock (current + history)
 │   ├── scripts/verify-wiki.js   # one-off live wiki check
 │   ├── data/                    # last-known-stock.json (runtime)
 │   ├── secrets/                 # firebase service account (gitignored)
 │   ├── Dockerfile               # multi-stage node:22-alpine
-│   └── test/                    # 29 Jest tests
+│   └── test/                    # 31 Jest tests
 ├── app/                         # Flutter Android app
+│   ├── assets/icon/             # launcher icon masters (generated)
 │   ├── lib/
-│   │   ├── main.dart            # wiring, navigation
+│   │   ├── main.dart            # wiring, navigation, one-time onboarding flag
 │   │   ├── config.dart          # API base URL, FCM topic
-│   │   ├── models/fruit.dart
+│   │   ├── models/fruit.dart    # Fruit + StockSnapshot (+ history)
 │   │   ├── screens/onboarding_screen.dart
-│   │   ├── screens/stock_screen.dart        # grid + update banner
+│   │   ├── screens/stock_screen.dart        # stock row + history + update banner
 │   │   └── services/            # stock_api, fcm_service, update_service
 │   ├── android/app/
 │   │   ├── google-services.json # (gitignored)
@@ -346,5 +358,6 @@ CI runs the backend and Flutter suites on every push.
 │   ├── deploy.yml               # GHCR + Render hook
 │   └── release.yml              # tag v* → signed APK → GitHub Release
 ├── render.yaml                  # Render Blueprint (image runtime)
-└── project.md                   # original spec
+├── project.md                   # original spec
+└── VISION.md                    # private future-vision doc (gitignored)
 ```
