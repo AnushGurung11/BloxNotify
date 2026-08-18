@@ -30,7 +30,13 @@ describe('GET /stock', () => {
 
   test('returns the stored stock with raw names (no resolver)', async () => {
     const { writeStock } = require('../src/stockStore');
-    const record = writeStock({ fruits: ['Spring', 'Flame'] }, stockFile);
+    const record = writeStock(
+      {
+        fruits: ['Spring', 'Flame'],
+        history: [{ fruits: ['Ice'], updatedAt: '2026-08-01T00:00:00.000Z' }],
+      },
+      stockFile
+    );
     app = createApp({ stockFile });
 
     const res = await request(app).get('/stock');
@@ -40,6 +46,9 @@ describe('GET /stock', () => {
       { name: 'Flame', imageUrl: null },
     ]);
     expect(res.body.updatedAt).toBe(record.updatedAt);
+    expect(res.body.history).toEqual([
+      { fruits: ['Ice'], updatedAt: '2026-08-01T00:00:00.000Z' },
+    ]);
   });
 
   test('enriches fruits with image URLs when a resolver is provided', async () => {

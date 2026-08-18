@@ -54,6 +54,35 @@ describe('checkStockOnce', () => {
     expect(notifyStockChange).toHaveBeenCalledWith(
       expect.objectContaining({ fruits: ['Blade', 'Ice', 'Mammoth'] })
     );
+
+    // The first snapshot moved into the history.
+    const stored = JSON.parse(fs.readFileSync(stockFile, 'utf8'));
+    expect(stored.history).toEqual([
+      { fruits: ['Spring', 'Flame', 'Light'], updatedAt: expect.any(String) },
+    ]);
+  });
+
+  test('keeps history capped at MAX_HISTORY entries', async () => {
+    const { MAX_HISTORY } = require('../src/poller');
+    const history = [];
+    for (let i = 0; i < MAX_HISTORY + 5; i++) {
+      history.push({ fruits: [`Fruit${i}`], updatedAt: `t${i}` });
+    }
+    const { writeStock } = require('../src/stockStore');
+    writeStock({ fruits: ['Old'], history }, stockFile);
+
+    await checkStockOnce({
+      axios: makeAxios(fixture('stock-after.wikitext')),
+      stockFile,
+      log: { info() {}, error() {} },
+    });
+
+    const stored = JSON.parse(fs.readFileSync(stockFile, 'utf8'));
+    expect(stored.history).toHaveLength(MAX_HISTORY);
+    expect(stored.history[0]).toEqual({
+      fruits: ['Old'],
+      updatedAt: expect.any(String),
+    });
   });
 
   test('does nothing when the stock is unchanged', async () => {

@@ -15,7 +15,7 @@ function createStockRouter({ stockFile, imageResolver } = {}) {
   const router = express.Router();
 
   router.get('/stock', async (req, res) => {
-    const { fruits, updatedAt } = stockStore.readStock(stockFile);
+    const { fruits, updatedAt, history } = stockStore.readStock(stockFile);
 
     let items = fruits.map((name) => ({ name, imageUrl: null }));
     if (imageResolver) {
@@ -26,7 +26,7 @@ function createStockRouter({ stockFile, imageResolver } = {}) {
       }
     }
 
-    res.json({ fruits: items, updatedAt });
+    res.json({ fruits: items, updatedAt, history: history || [] });
   });
 
   return router;

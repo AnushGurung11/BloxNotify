@@ -7,6 +7,7 @@ const stockStore = require('./stockStore');
 const { notifyStockChange } = require('./notifier');
 
 const DEFAULT_INTERVAL_MS = 90 * 1000; // every 90 seconds
+const MAX_HISTORY = 50; // previous stock snapshots kept in the state file
 
 /**
  * Converts a poll interval in milliseconds to a node-cron expression with
@@ -52,7 +53,15 @@ async function checkStockOnce(deps) {
   }
 
   log.info(`poller: stock changed ${previous.fruits.join(', ') || '(none)'} -> ${fruits.join(', ')}`);
-  const record = stockStore.writeStock({ fruits }, deps.stockFile);
+
+  // The previous snapshot moves into the history, newest first, capped.
+  const historyEntry = previous.fruits.length > 0
+    ? { fruits: previous.fruits, updatedAt: previous.updatedAt }
+    : null;
+  const history = [historyEntry, ...(previous.history || [])]
+    .filter(Boolean)
+    .slice(0, MAX_HISTORY);
+  const record = stockStore.writeStock({ fruits, history }, deps.stockFile);
 
   // The first record after a (re)start is just a seed — there is no previous
   // state to compare against, so no notification is sent for it.
@@ -87,4 +96,4 @@ function startPolling(deps) {
   return task;
 }
 
-module.exports = { startPolling, checkStockOnce, intervalToCron, DEFAULT_INTERVAL_MS };
+module.exports = { startPolling, checkStockOnce, intervalToCron, DEFAULT_INTERVAL_MS, MAX_HISTORY };
