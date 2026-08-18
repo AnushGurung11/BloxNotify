@@ -18,7 +18,7 @@ services:
     name: blox-notify-backend
     runtime: image
     image:
-      url: ghcr.io/AnushGurung11/blox-notify-backend:latest
+      url: ghcr.io/anushgurung11/blox-notify-backend:latest
     plan: free
     healthCheckPath: /stock
     envVars:
