@@ -74,6 +74,28 @@ Returns the last-known stock plus history:
   names only, no images).
 - An empty `fruits` array means no stock has been recorded yet.
 
+### `GET /stock/predictions`
+
+Predicts the next rotation from the wiki's History of Stock pages:
+
+```json
+{
+  "ready": true,
+  "nextResetAt": 1787083200000,
+  "predictions": [
+    { "name": "Chop", "confidence": 0.123 },
+    { "name": "Smoke", "confidence": 0.111 },
+    { "name": "Sand", "confidence": 0.071 }
+  ],
+  "rating": { "top1Accuracy": 32.3, "top3Accuracy": 63.2, "testedRotations": 10972 }
+}
+```
+
+- The model scores fruits by **slot affinity** (fixed 00:00/04:00/08:00/12:00/16:00/20:00 UTC rotations) plus **transition affinity** (how often a fruit followed rotations containing the current stock); current-stock fruits are excluded.
+- `rating` comes from a strict **walk-forward backtest** (each rotation predicted using only prior data) — it reflects real-world accuracy.
+- The history is fetched at boot and refreshed every 6 hours; `ready: false` is returned until then.
+- Manual inspection: `npm run verify:history`.
+
 ## Tests
 
 ```bash

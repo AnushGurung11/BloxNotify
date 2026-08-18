@@ -97,8 +97,27 @@ Fruit icons live on the wiki as `<FruitName>_Fruit.png` (e.g. `Spring_Fruit.png`
 |---|---|
 | `GET /` | JSON with stock summary (default Express route behaviour) |
 | `GET /stock` | `{ "fruits": [ { "name": "Spring", "imageUrl": "..." }, ... ], "updatedAt": "ISO-8601", "history": [ { "fruits": ["Ice", "Venom"], "updatedAt": "ISO-8601" }, ... ] }` — last known stock enriched with image URLs plus up to 50 previous snapshots (newest first); `updatedAt` is the moment the wiki change was recorded |
+| `GET /stock/predictions` | `{ "ready": true, "nextResetAt": "epoch-ms", "predictions": [ { "name": "Chop", "confidence": 0.12 }, ... ], "rating": { "top1Accuracy": 32.3, "top3Accuracy": 63.2, "testedRotations": 10972 } }` — predicted fruits for the next rotation with a walk-forward backtest rating; `{ "ready": false }` before the history model is loaded |
 
 The health check used by Render points at `GET /stock`.
+
+### Stock prediction (`src/historyParser.js`, `src/predictor.js`)
+
+Blox Notify predicts the **next stock rotation**. It parses the wiki's
+[History of Stock](https://blox-fruits.fandom.com/wiki/History_of_Stock) pages
+(10,000+ recorded rotations since 2020, fetched at boot and every 6h), then
+scores every fruit as a blend of:
+
+- **slot affinity** — how often the fruit appears in the target UTC slot
+  (rotations happen at fixed 00:00/04:00/08:00/12:00/16:00/20:00 UTC), and
+- **transition affinity** — how often the fruit followed a rotation containing
+  each of the currently-stocked fruits.
+
+Fruits already in stock are excluded. The **rating** is a strict walk-forward
+backtest — every rotation is predicted using only the data before it — so the
+displayed accuracy (32.3% top-1 / 63.2% top-3 over 10,972 rotations) is what
+the model actually achieved, not a fitted figure. Predictions are
+entertainment/utility, not guaranteed.
 
 ### Notifications (`src/notifier.js`)
 
@@ -150,7 +169,7 @@ flowchart LR
 ```
 
 1. **Onboarding** (`lib/screens/onboarding_screen.dart`) — explains the app, requests notification permission, then subscribes the device to the FCM `stock_updates` topic via `firebase_messaging`. The "done" flag is persisted with `shared_preferences`, so the prompt shows **exactly once, ever** — not on every launch.
-2. **Stock screen** (`lib/screens/stock_screen.dart`) — fetches `GET {apiBase}/stock`, renders the current stock as a **compact single row** of fruit tiles (72px images + names), then a **Stock History** list of the previous rotations with **12-hour timestamps** (`2026-08-18 08:15 PM`), and supports pull-to-refresh. A **MaterialBanner** appears when a newer APK exists; tapping *Download* opens the GitHub Release asset in the browser via `url_launcher`.
+2. **Stock screen** (`lib/screens/stock_screen.dart`) — fetches `GET {apiBase}/stock`, renders the current stock as a **compact single row** of fruit tiles (72px images + names), then a **Predicted Next Stock** section (top-3 candidates with confidence bars + the model's backtested rating and next rotation time) and a **Stock History** list of the previous rotations with **12-hour timestamps** (`2026-08-18 08:15 PM`), and supports pull-to-refresh. A **MaterialBanner** appears when a newer APK exists; tapping *Download* opens the GitHub Release asset in the browser via `url_launcher`.
 3. **Background handling** (`lib/services/fcm_service.dart`) — a top-level background handler converts incoming FCM messages into a **big-picture notification** (first fruit image + changed list) using `flutter_local_notifications`, so a change is visible even with the app closed. A `PushService` abstraction keeps the UI testable.
 
 ### Launcher icon
@@ -291,8 +310,8 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 
 | Suite | Command | Coverage |
 |---|---|---|
-| Backend (Jest + Supertest) | `cd backend && npm test` | 31 tests — wiki client, parser (incl. edge cases), poller diff/notify logic, stock store (incl. history), `/stock` route, image resolver, cron conversion |
-| App (Flutter) | `cd app && flutter test` | 17 tests — stock row + history rendering, 12-hour time formatting, API service, FCM service, onboarding, **update service + banner logic** (injectable `updateService` / `versionProvider`) |
+| Backend (Jest + Supertest) | `cd backend && npm test` | 48 tests — wiki client, parser, poller diff/notify logic, stock store (incl. history), `/stock` route, history parser (wiki tables), predictor (backtest + slots), predictions route, image resolver, cron conversion |
+| App (Flutter) | `cd app && flutter test` | 19 tests — stock row + history rendering, 12-hour time formatting, predictions section + model rating, API service, FCM service, onboarding, **update service + banner logic** (injectable `updateService` / `versionProvider`) |
 | App static analysis | `cd app && flutter analyze` | zero issues |
 | E2E (emulator) | `cd app && flutter test integration_test` | full app flow on a real Android emulator |
 
@@ -314,6 +333,7 @@ CI runs the backend and Flutter suites on every push.
 
 - **Notification speed is capped by wiki editors** — this app broadcasts what the wiki says; it cannot see the game itself.
 - The backend state file (current stock **and** history) lives inside the container and resets on redeploy. On restart the backend seeds the current stock silently (no notification spam) and history starts empty again. Persisting across redeploys requires a Render disk (paid plans).
+- **Predictions are a statistical guess** (community-recorded history, not the game's RNG) — the in-app rating shows the model's real backtested accuracy.
 - v1 covers the **stock dealer only** — Mirage and Advanced dealer stock are out of scope (see `VISION.md`, a gitignored planning doc).
 - Android-only for now (no iOS build), distributed via GitHub Releases — not on the Play Store.
 - One notification per stock change (topic broadcast) — no per-user accounts or preferences yet.
@@ -333,12 +353,18 @@ CI runs the backend and Flutter suites on every push.
 │   │   ├── poller.js            # node-cron loop + diff + notify
 │   │   ├── notifier.js          # FCM topic broadcasts
 │   │   ├── fruitImages.js       # imageinfo API resolution + cache
-│   │   └── routes/stock.js      # GET /stock (current + history)
+│   │   ├── historyClient.js     # History of Stock pages fetch
+│   │   ├── historyParser.js     # wiki tables → rotation entries
+│   │   ├── predictor.js         # slot/transition model + walk-forward backtest
+│   │   ├── stockPredictor.js    # cached predictor service (6h refresh)
+│   │   ├── routes/stock.js      # GET /stock (current + history)
+│   │   └── routes/predictions.js # GET /stock/predictions
 │   ├── scripts/verify-wiki.js   # one-off live wiki check
+│   ├── scripts/verify-history.js # one-off history parse + backtest report
 │   ├── data/                    # last-known-stock.json (runtime)
 │   ├── secrets/                 # firebase service account (gitignored)
 │   ├── Dockerfile               # multi-stage node:22-alpine
-│   └── test/                    # 31 Jest tests
+│   └── test/                    # 48 Jest tests
 ├── app/                         # Flutter Android app
 │   ├── assets/icon/             # launcher icon masters (generated)
 │   ├── lib/
@@ -352,7 +378,7 @@ CI runs the backend and Flutter suites on every push.
 │   │   ├── google-services.json # (gitignored)
 │   │   ├── release.keystore     # (gitignored)
 │   │   └── build.gradle.kts     # signing, conditional google-services plugin
-│   └── test/ + integration_test/
+│   ├── test/ + integration_test/
 ├── .github/workflows/
 │   ├── ci.yml                   # tests + debug APK
 │   ├── deploy.yml               # GHCR + Render hook
