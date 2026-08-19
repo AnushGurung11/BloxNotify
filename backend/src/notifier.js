@@ -33,20 +33,23 @@ function ensureInitialized(credentialsJson) {
  *
  * @param {Array<{name: string, imageUrl: string|null}>} fruits current stock
  * @param {string} topic FCM topic name
+ * @param {'normal'|'mirage'} [dealer] which dealer's stock changed
  * @returns {object} message ready for admin.messaging().send()
  */
-function buildMessage(fruits, topic = DEFAULT_TOPIC) {
+function buildMessage(fruits, topic = DEFAULT_TOPIC, dealer = 'normal') {
   const names = fruits.map((f) => f.name);
   const firstImage = fruits.find((f) => f.imageUrl);
+  const isMirage = dealer === 'mirage';
 
   return {
     topic,
     notification: {
-      title: 'Stock Updated!',
+      title: isMirage ? 'Mirage Stock Updated!' : 'Stock Updated!',
       body: `New stock: ${names.join(', ')}`,
     },
     data: {
       type: 'stock_update',
+      dealer,
       fruits: names.join(','),
       imageUrls: JSON.stringify(
         Object.fromEntries(fruits.map((f) => [f.name, f.imageUrl || '']))
@@ -63,6 +66,7 @@ function buildMessage(fruits, topic = DEFAULT_TOPIC) {
  * Sends a stock-change notification to the FCM topic.
  *
  * @param {object} params
+ * @param {'normal'|'mirage'} [params.dealer] which dealer's stock changed
  * @param {string[]} params.fruits new stock fruit names
  * @param {string} [params.topic] FCM topic (default stock_updates)
  * @param {string} [params.credentialsJson] FIREBASE_SERVICE_ACCOUNT value
@@ -70,7 +74,7 @@ function buildMessage(fruits, topic = DEFAULT_TOPIC) {
  *   to attach image URLs to the payload
  * @returns {Promise<{skipped: boolean}>}
  */
-async function notifyStockChange({ fruits, topic, credentialsJson, resolver }) {
+async function notifyStockChange({ dealer = 'normal', fruits, topic, credentialsJson, resolver }) {
   const items = resolver
     ? await resolver.resolveFruits(fruits)
     : fruits.map((name) => ({ name, imageUrl: null }));
@@ -80,7 +84,7 @@ async function notifyStockChange({ fruits, topic, credentialsJson, resolver }) {
     return { skipped: true };
   }
 
-  const message = buildMessage(items, topic);
+  const message = buildMessage(items, topic, dealer);
   await admin.messaging().send(message);
   return { skipped: false };
 }

@@ -41,6 +41,17 @@ describe('buildMessage', () => {
     const msg = buildMessage([{ name: 'Ice', imageUrl: null }]);
     expect(msg.topic).toBe(DEFAULT_TOPIC);
   });
+
+  test('labels mirage dealer notifications', () => {
+    const msg = buildMessage(
+      [{ name: 'Dough', imageUrl: 'https://img/dough.png' }],
+      'stock_updates',
+      'mirage'
+    );
+    expect(msg.notification.title).toBe('Mirage Stock Updated!');
+    expect(msg.data.dealer).toBe('mirage');
+    expect(msg.android.notification.image).toBe('https://img/dough.png');
+  });
 });
 
 describe('notifyStockChange', () => {

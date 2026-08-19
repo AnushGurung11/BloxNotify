@@ -1,14 +1,16 @@
-/// A single predicted fruit with its model confidence.
+/// A single predicted fruit with its model confidence and image.
 class FruitPrediction {
-  const FruitPrediction({required this.name, required this.confidence});
+  const FruitPrediction({required this.name, required this.confidence, this.imageUrl});
 
   final String name;
   final double confidence;
+  final String? imageUrl;
 
   factory FruitPrediction.fromJson(Map<String, dynamic> json) =>
       FruitPrediction(
         name: json['name'] as String,
         confidence: (json['confidence'] as num?)?.toDouble() ?? 0,
+        imageUrl: json['imageUrl'] as String?,
       );
 }
 
@@ -32,12 +34,35 @@ class PredictionRating {
       );
 }
 
+/// A UTC rotation slot ranked by historical premium-fruit quality.
+class BestSlot {
+  const BestSlot({
+    required this.hour,
+    required this.premiumCount,
+    required this.rotations,
+    required this.score,
+  });
+
+  final int hour;
+  final int premiumCount;
+  final int rotations;
+  final double score;
+
+  factory BestSlot.fromJson(Map<String, dynamic> json) => BestSlot(
+        hour: (json['hour'] as num?)?.toInt() ?? 0,
+        premiumCount: (json['premiumCount'] as num?)?.toInt() ?? 0,
+        rotations: (json['rotations'] as num?)?.toInt() ?? 0,
+        score: (json['score'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 /// Response of GET /stock/predictions.
 class PredictionResult {
   const PredictionResult({
     required this.predictions,
     this.nextResetAt,
     this.rating,
+    this.bestSlots = const [],
   });
 
   final List<FruitPrediction> predictions;
@@ -46,6 +71,9 @@ class PredictionResult {
   final DateTime? nextResetAt;
 
   final PredictionRating? rating;
+
+  /// UTC slots ranked best first.
+  final List<BestSlot> bestSlots;
 
   factory PredictionResult.fromJson(Map<String, dynamic> json) =>
       PredictionResult(
@@ -61,5 +89,8 @@ class PredictionResult {
         rating: json['rating'] == null
             ? null
             : PredictionRating.fromJson(json['rating'] as Map<String, dynamic>),
+        bestSlots: (json['bestSlots'] as List<dynamic>? ?? const [])
+            .map((s) => BestSlot.fromJson(s as Map<String, dynamic>))
+            .toList(),
       );
 }

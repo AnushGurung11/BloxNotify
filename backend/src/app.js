@@ -18,8 +18,13 @@ const { createPredictionsRouter } = require('./routes/predictions');
 function createApp({ stockFile, imageResolver, predictor } = {}) {
   const app = express();
   app.use(express.json());
+
+  // Lightweight liveness endpoint used by uptime keep-alive pings that keep
+  // the free-tier instance awake so the poller runs continuously.
+  app.get('/health', (req, res) => res.json({ ok: true }));
+
   app.use('/', createStockRouter({ stockFile, imageResolver }));
-  app.use('/', createPredictionsRouter({ stockFile, predictor }));
+  app.use('/', createPredictionsRouter({ stockFile, predictor, imageResolver }));
   return app;
 }
 

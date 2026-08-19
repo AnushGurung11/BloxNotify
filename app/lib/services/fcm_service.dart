@@ -166,7 +166,7 @@ class StockNotificationDisplayer {
     if (response.statusCode != 200) {
       throw Exception('image download failed: ${response.statusCode}');
     }
-    final file = File('${Directory.systemTemp.path}/blox_notify_stock.png');
+    final file = File('${Directory.systemTemp.path}/blox_notify_stock.img');
     await file.writeAsBytes(response.bodyBytes, flush: true);
     return file.path;
   }

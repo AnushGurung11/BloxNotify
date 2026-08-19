@@ -27,7 +27,7 @@ if (!credentialsJson && process.env.FIREBASE_SERVICE_ACCOUNT_FILE) {
   }
 }
 
-const imageResolver = createImageResolver({ axios });
+const imageResolver = createImageResolver();
 
 const predictor = createStockPredictor({
   fetchHistory: () => fetchHistoryWikitext({ axios }),

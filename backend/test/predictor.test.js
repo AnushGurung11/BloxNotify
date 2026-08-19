@@ -78,5 +78,24 @@ test('reaches 100% accuracy on a deterministic pattern', () => {
       expect(result.nextResetAt).toBe(Date.UTC(2026, 7, 20, 12));
       expect(result.rating.testedRotations).toBeGreaterThan(0);
     });
+
+    test('ranks the UTC slots by premium fruit presence', () => {
+      const entries = [
+        { ts: Date.UTC(2026, 7, 1, 20), fruits: ['A', 'Dough'] },
+        { ts: Date.UTC(2026, 7, 2, 20), fruits: ['A', 'Dough'] },
+        { ts: Date.UTC(2026, 7, 3, 20), fruits: ['A', 'B'] },
+        { ts: Date.UTC(2026, 7, 1, 0), fruits: ['C', 'D'] },
+        { ts: Date.UTC(2026, 7, 2, 0), fruits: ['C', 'E'] },
+      ];
+      const result = predict({
+        entries,
+        currentFruits: ['X'],
+        now: new Date('2026-08-20T10:00:00.000Z'),
+      });
+      expect(result.bestSlots).toHaveLength(6);
+      expect(result.bestSlots[0].hour).toBe(20);
+      expect(result.bestSlots[0].score).toBeGreaterThan(result.bestSlots[1].score);
+      expect(result.bestSlots[0].premiumCount).toBe(2);
+    });
   });
 });

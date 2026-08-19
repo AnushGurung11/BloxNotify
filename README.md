@@ -1,10 +1,10 @@
 # Blox Notify
 
-**Real-time Blox Fruits stock-change notifications, straight from the wiki to your phone.**
+**Real-time Blox Fruits stock-change notifications for the Normal and Mirage dealers.**
 
-Blox Notify watches the [Blox Fruits wiki stock page](https://blox-fruits.fandom.com/wiki/Blox_Fruits_%22Stock%22), detects every time the current stock of fruits changes, and pushes a notification to everyone who subscribed — within seconds of the wiki being updated. An Android app shows the current stock with fruit images and a banner when a newer version is available.
+Blox Notify watches the live stock on [FruityBlox](https://fruityblox.com/stock) (pulled automatically from the in-game shop — Normal dealer rotates every 4 hours, Mirage every 2 hours), detects every stock change, and pushes a notification to everyone who subscribed. An Android app shows the current stock with fruit images, a countdown to the next rotation, predicted next stock, and change history.
 
-> ⚠️ **Disclaimer**: Blox Notify is a fan-made utility. It is not affiliated with Gamer Robot Inc., the developers of Blox Fruits, or Fandom. Notification speed depends on how quickly wiki editors update the stock page.
+> ⚠️ **Disclaimer**: Blox Notify is a fan-made utility. It is not affiliated with Gamer Robot Inc., the developers of Blox Fruits, or FruityBlox. Stock data comes from FruityBlox's live dealer feed.
 
 ---
 
@@ -29,13 +29,13 @@ Blox Notify watches the [Blox Fruits wiki stock page](https://blox-fruits.fandom
 
 ```mermaid
 flowchart LR
-    WIKI["Blox Fruits Wiki<br/>(blox-fruits.fandom.com)"] -->|"api.php · wikitext<br/>every 90s"| BACKEND
+    FB["FruityBlox<br/>(fruityblox.com/stock)"] -->|"SSR HTML<br/>every 90s"| BACKEND
 
     subgraph BACKEND["Backend — Node.js + Express (Render / Docker)"]
         POLLER["Poller (node-cron)<br/>fetch → parse → diff"]
-        PARSER["Stock parser<br/>{{Stock/Main | Current=...}}"]
+        PARSER["FruityBlox parser<br/>normal + mirage stock"]
         STORE[("State file<br/>last-known-stock.json")]
-        IMAGES["Image resolver<br/>(MediaWiki imageinfo API)"]
+        IMAGES["Image URLs<br/>(deterministic slugs)"]
         FCM["Notifier<br/>firebase-admin"]
         API["REST API<br/>GET /stock"]
     end
@@ -65,13 +65,13 @@ flowchart LR
     DEPLOY -->|"deploy hook"| BACKEND
 ```
 
-**Data flow in one sentence:** the wiki is a community-edited source of truth → the backend polls, parses, diffs and broadcasts → Firebase fans the message out to every subscribed device → the app renders the stock and keeps itself up to date from GitHub Releases.
+**Data flow in one sentence:** FruityBlox pulls the dealer stock straight from the game → the backend polls, parses, diffs and broadcasts → Firebase fans the message out to every subscribed device → the app renders the stock and keeps itself up to date from GitHub Releases.
 
 ---
 
 ## 1. Backend (Node.js + Express)
 
-A dependency-light CommonJS service (`backend/`) that does one job: *watch the wiki, and tell the world when stock changes.*
+A dependency-light CommonJS service (`backend/`) that does one job: *watch the live dealer stock, and tell the world when it changes.*
 
 ### The polling pipeline (`src/poller.js`)
 
@@ -79,33 +79,43 @@ Every **90 seconds** (configurable via `POLL_INTERVAL_MS`) `node-cron` runs one 
 
 | Stage | Module | What happens |
 |---|---|---|
-| **Fetch** | `src/wikiClient.js` | `GET https://blox-fruits.fandom.com/api.php?action=parse&page=Blox_Fruits_%22Stock%22&prop=wikitext&format=json` |
-| **Parse** | `src/stockParser.js` | Extracts the `Current` field from the `{{Stock/Main |Current = ...}}` template via regex, e.g. `Spring, Flame, Light` → `["Spring", "Flame", "Light"]` |
-| **Diff** | `src/stockStore.js` | Compares against the last-known stock persisted in `data/last-known-stock.json` |
-| **Notify** | `src/notifier.js` | If the list changed, sends an FCM topic broadcast (see below) |
+| **Fetch** | `src/fruitybloxClient.js` | `GET https://fruityblox.com/stock` (a Next.js SSR page — no public API). Stock is pulled automatically from the in-game shop, so it updates live at each rotation instead of waiting for wiki editors |
+| **Parse** | `src/fruitybloxClient.js` | Extracts the `normal` and `mirage` dealer stock from the page's embedded Next.js payload (with a rendered-DOM fallback), e.g. `normal: [Rocket, Spin, ...]`, `mirage: [Rocket, Gas, ...]` |
+| **Diff** | `src/stockStore.js` | Compares both dealer lists against the last-known stock persisted in `data/last-known-stock.json` |
+| **Notify** | `src/notifier.js` | For each dealer that changed, sends an FCM topic broadcast (see below) |
 | **Persist** | `src/stockStore.js` | Writes the new stock + timestamp to the state file and pushes the previous snapshot onto `history` (capped at 50, newest first) |
 
-Safety guard: if a poll parses an **empty** stock list, the cycle is aborted instead of treating it as a change (protects against transient wiki/API failures).
+Safety guard: if a poll parses an **empty** stock, the cycle is aborted instead of treating it as a change (protects against transient site failures).
+
+### Keeping the poller alive (Render free tier)
+
+Render's **free** web services spin down after 15 minutes without inbound traffic. While spun down the cron loop does not run, so a stock change is only noticed when a request wakes the service — which is why notifications may have gone missing.
+
+Two things fix this:
+
+1. The service now exposes **`GET /health`** (returns `200 {"ok":true}`) as a dedicated liveness endpoint.
+2. Point a **free uptime monitor at it** — e.g. [UptimeRobot](https://uptimerobot.com/) (free: 50 monitors, 5-minute interval). Each ping counts as inbound traffic and prevents spin-down, so the service polls 24/7 and notifications fire on time. (Render's own health-check pings do *not* count as activity.)
 
 ### Fruit images (`src/fruitImages.js`)
 
-Fruit icons live on the wiki as `<FruitName>_Fruit.png` (e.g. `Spring_Fruit.png`). `Special:FilePath` redirects with 403s to non-browser clients, so the resolver queries the MediaWiki `imageinfo` API in batches of 50 and caches results **in memory**. The cache populates lazily as the app fetches `/stock`.
+Fruit icons are served by FruityBlox at deterministic slug URLs (`https://fruityblox.com/images/fruits/<slug>.webp`) — no API call or cache needed. Unknown fruits fall back to `null` and the app shows a placeholder, never a wrong image.
 
 ### REST API
 
 | Endpoint | Response |
 |---|---|
-| `GET /` | JSON with stock summary (default Express route behaviour) |
-| `GET /stock` | `{ "fruits": [ { "name": "Spring", "imageUrl": "..." }, ... ], "updatedAt": "ISO-8601", "history": [ { "fruits": ["Ice", "Venom"], "updatedAt": "ISO-8601" }, ... ] }` — last known stock enriched with image URLs plus up to 50 previous snapshots (newest first); `updatedAt` is the moment the wiki change was recorded |
-| `GET /stock/predictions` | `{ "ready": true, "nextResetAt": "epoch-ms", "predictions": [ { "name": "Chop", "confidence": 0.12 }, ... ], "rating": { "top1Accuracy": 32.3, "top3Accuracy": 63.2, "testedRotations": 10972 } }` — predicted fruits for the next rotation with a walk-forward backtest rating; `{ "ready": false }` before the history model is loaded |
+| `GET /health` | `{ "ok": true }` — liveness endpoint for the keep-alive pinger |
+| `GET /stock` | `{ "normal": { "fruits": [ { "name": "Spring", "imageUrl": "..." }, ... ], "updatedAt": "ISO-8601", "nextResetAt": "epoch-ms" }, "mirage": { ... }, "fruits": <normal alias>, "updatedAt": ..., "history": [ { "fruits": [...], "mirageFruits": [...], "updatedAt": "ISO-8601" }, ... ] }` — last known stock for both dealers enriched with image URLs, next reset times (normal: 4h, mirage: 2h, UTC-aligned), plus up to 50 previous snapshots (newest first) |
+| `GET /stock/predictions` | `{ "ready": true, "nextResetAt": "epoch-ms", "predictions": [ { "name": "Chop", "confidence": 0.12, "imageUrl": "..." }, ... ], "rating": { "top1Accuracy": 32.3, "top3Accuracy": 63.2, "testedRotations": 10972 }, "bestSlots": [ { "hour": 20, "premiumCount": ..., "rotations": ..., "score": ... }, ... ] }` — predicted fruits for the next rotation (with images), a walk-forward backtest rating, and the UTC slots ranked by historical premium-fruit quality; `{ "ready": false }` before the history model is loaded |
 
-The health check used by Render points at `GET /stock`.
+The health check used by Render points at `GET /health`.
 
 ### Stock prediction (`src/historyParser.js`, `src/predictor.js`)
 
 Blox Notify predicts the **next stock rotation**. It parses the wiki's
 [History of Stock](https://blox-fruits.fandom.com/wiki/History_of_Stock) pages
-(10,000+ recorded rotations since 2020, fetched at boot and every 6h), then
+(10,000+ recorded rotations since 2020, fetched at boot and every 6h — the wiki
+is used here because FruityBlox only exposes current stock), then
 scores every fruit as a blend of:
 
 - **slot affinity** — how often the fruit appears in the target UTC slot
@@ -117,13 +127,15 @@ Fruits already in stock are excluded. The **rating** is a strict walk-forward
 backtest — every rotation is predicted using only the data before it — so the
 displayed accuracy (32.3% top-1 / 63.2% top-3 over 10,972 rotations) is what
 the model actually achieved, not a fitted figure. Predictions are
-entertainment/utility, not guaranteed.
+entertainment/utility, not guaranteed. The response also ranks the six UTC
+slots by how many premium fruits appeared per rotation (`bestSlots`), so the
+app can show "the 8:00 PM UTC slot has historically had the best stock".
 
 ### Notifications (`src/notifier.js`)
 
-Uses `firebase-admin` to publish a **topic message** to the `stock_updates` topic (configurable via `FCM_TOPIC`):
+Uses `firebase-admin` to publish a **topic message** to the `stock_updates` topic (configurable via `FCM_TOPIC`) — one message per dealer that changed:
 
-- Notification title: `Stock Updated!`
+- Normal dealer: title `Stock Updated!`; Mirage dealer: title `Mirage Stock Updated!` (payload carries `dealer: "normal" | "mirage"`)
 - Data payload: `fruits` (comma-separated names) and `imageUrls` (the new stock's fruit images, JSON)
 - The app renders a **big-picture notification** with the first fruit's image
 
@@ -200,29 +212,30 @@ Release builds are signed with a dedicated keystore (`app/android/app/release.ke
 ## How a stock change reaches your phone
 
 ```
-wiki editor updates the page
+FruityBlox pulls the dealer stock from the game
         │
         ▼
-Backend poll (every 90s) ──► parse Current ──► differs from last-known?
-        │                                  │
-        │ no: log "stock unchanged"        │ yes
-        ▼                                  ▼
-   wait 90s                      persist new stock + append
-                                    previous stock to history
-                                    │
-                                    ▼
-                          FCM topic message "stock_updates"
-                                    │
-                                    ▼
-                          Every subscribed device shows the
-                          "Stock Updated!" push — delivered by
-                          the Android system itself, so it
-                          arrives even with the app closed
-                          or force-stopped (no background
-                          service needed)
+Backend poll (every 90s) ──► parse normal + mirage ──► differs from last-known?
+        │                                        │
+        │ no: log "stock unchanged"              │ yes (per dealer)
+        ▼                                        ▼
+   wait 90s                            persist new stock + append
+                                           previous stock to history
+                                           │
+                                           ▼
+                                 FCM topic message "stock_updates"
+                                           │
+                                           ▼
+                                 Every subscribed device shows the
+                                 "Stock Updated!" (or "Mirage Stock
+                                 Updated!") push — delivered by the
+                                 Android system itself, so it arrives
+                                 even with the app closed or
+                                 force-stopped (no background service
+                                 needed)
 ```
 
-The end-to-end latency is the poll interval + wiki latency: **at most ~90 seconds** after the wiki page changes. When the app is in the foreground/background the big-picture notification is rendered by the app; when it is terminated the system shows the standard notification from the push payload.
+The end-to-end latency is the poll interval: **at most ~90 seconds** after FruityBlox's feed reflects the new stock. When the app is in the foreground/background the big-picture notification is rendered by the app; when it is terminated the system shows the standard notification from the push payload.
 
 ---
 
@@ -250,6 +263,7 @@ Notes:
 
 - **GHCR image names must be lowercase.** The workflow computes `ghcr.io/${GITHUB_REPOSITORY_OWNER}/blox-notify-backend` and lowercases it in bash (`${VAR,,}`) — expression functions can't be relied on for this.
 - The Render service is defined in `render.yaml` (Blueprint) as an **image** runtime pulling the GHCR tag, with `FIREBASE_SERVICE_ACCOUNT` as a manually-synced secret env var (`sync: false`).
+- **Keep the free instance awake:** set up a free [UptimeRobot](https://uptimerobot.com/) monitor (HTTP(s), 5-minute interval) on `https://bloxnotify.onrender.com/health`. Without it the service spins down after 15 idle minutes and the stock poller — and thus notifications — stops.
 - Secrets **cannot** be referenced in `if:` conditions — not at step level, and not at job level. All workflow secrets are mapped to job-level `env:` vars and checked with `if: ${{ env.X != '' }}`.
 
 ### Required GitHub secrets
@@ -291,7 +305,7 @@ npm install
 cp .env.example .env          # set FIREBASE_SERVICE_ACCOUNT_FILE=./secrets/<your-key>.json
 npm run dev                   # or npm start
 curl http://localhost:3000/stock
-npm run verify:wiki           # one-off: fetch + parse the live wiki
+npm run verify:stock          # one-off: fetch + parse the live FruityBlox stock
 ```
 
 ### App
@@ -310,7 +324,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 
 | Suite | Command | Coverage |
 |---|---|---|
-| Backend (Jest + Supertest) | `cd backend && npm test` | 48 tests — wiki client, parser, poller diff/notify logic, stock store (incl. history), `/stock` route, history parser (wiki tables), predictor (backtest + slots), predictions route, image resolver, cron conversion |
+| Backend (Jest + Supertest) | `cd backend && npm test` | 61 tests — FruityBlox client (payload + DOM parsing, reset times), poller diff/notify logic (both dealers), stock store (incl. legacy migration), `/stock` + `/health` routes, history parser (wiki tables), predictor (backtest + slots + bestSlots), predictions route, notifier, cron conversion |
 | App (Flutter) | `cd app && flutter test` | 19 tests — stock row + history rendering, 12-hour time formatting, predictions section + model rating, API service, FCM service, onboarding, **update service + banner logic** (injectable `updateService` / `versionProvider`) |
 | App static analysis | `cd app && flutter analyze` | zero issues |
 | E2E (emulator) | `cd app && flutter test integration_test` | full app flow on a real Android emulator |
@@ -331,12 +345,12 @@ CI runs the backend and Flutter suites on every push.
 
 ## Limitations
 
-- **Notification speed is capped by wiki editors** — this app broadcasts what the wiki says; it cannot see the game itself.
+- **The poller needs the service to stay awake.** On Render's free plan, add a keep-alive ping (`GET /health`) so the 15-minute idle spin-down never happens — see [Keeping the poller alive](#keeping-the-poller-alive-render-free-tier).
 - The backend state file (current stock **and** history) lives inside the container and resets on redeploy. On restart the backend seeds the current stock silently (no notification spam) and history starts empty again. Persisting across redeploys requires a Render disk (paid plans).
-- **Predictions are a statistical guess** (community-recorded history, not the game's RNG) — the in-app rating shows the model's real backtested accuracy.
-- v1 covers the **stock dealer only** — Mirage and Advanced dealer stock are out of scope (see `VISION.md`, a gitignored planning doc).
+- **Predictions are a statistical guess** (community-recorded wiki history, not the game's RNG) — the in-app rating shows the model's real backtested accuracy.
+- The Normal dealer's stock rotates every 4 hours and the Mirage dealer every 2 hours — notifications fire within ~90s of FruityBlox reflecting the new stock, at the rotation boundary.
 - Android-only for now (no iOS build), distributed via GitHub Releases — not on the Play Store.
-- One notification per stock change (topic broadcast) — no per-user accounts or preferences yet.
+- One notification per dealer change (topic broadcast) — no per-user accounts or preferences yet.
 
 ---
 
@@ -347,24 +361,24 @@ CI runs the backend and Flutter suites on every push.
 │   ├── src/
 │   │   ├── index.js             # entry: env, credentials, start polling
 │   │   ├── app.js               # Express app factory (testable, no side effects)
-│   │   ├── wikiClient.js        # MediaWiki API client (wikitext fetch)
-│   │   ├── stockParser.js       # wikitext → fruit list
-│   │   ├── stockStore.js        # state file read/write (stock + history)
+│   │   ├── fruitybloxClient.js  # live stock scrape (normal + mirage + reset times)
+│   │   ├── wikiClient.js        # MediaWiki API client (history pages only)
+│   │   ├── stockStore.js        # state file read/write (both dealers + history)
 │   │   ├── poller.js            # node-cron loop + diff + notify
-│   │   ├── notifier.js          # FCM topic broadcasts
-│   │   ├── fruitImages.js       # imageinfo API resolution + cache
+│   │   ├── notifier.js          # FCM topic broadcasts (per dealer)
+│   │   ├── fruitImages.js       # deterministic FruityBlox image URLs
 │   │   ├── historyClient.js     # History of Stock pages fetch
 │   │   ├── historyParser.js     # wiki tables → rotation entries
-│   │   ├── predictor.js         # slot/transition model + walk-forward backtest
+│   │   ├── predictor.js         # slot/transition model + backtest + bestSlots
 │   │   ├── stockPredictor.js    # cached predictor service (6h refresh)
-│   │   ├── routes/stock.js      # GET /stock (current + history)
-│   │   └── routes/predictions.js # GET /stock/predictions
-│   ├── scripts/verify-wiki.js   # one-off live wiki check
+│   │   ├── routes/stock.js      # GET /stock (both dealers + next reset + history)
+│   │   └── routes/predictions.js # GET /stock/predictions (images + best slots)
+│   ├── scripts/verify-stock.js  # one-off live FruityBlox check
 │   ├── scripts/verify-history.js # one-off history parse + backtest report
 │   ├── data/                    # last-known-stock.json (runtime)
 │   ├── secrets/                 # firebase service account (gitignored)
 │   ├── Dockerfile               # multi-stage node:22-alpine
-│   └── test/                    # 48 Jest tests
+│   └── test/                    # 61 Jest tests
 ├── app/                         # Flutter Android app
 │   ├── assets/icon/             # launcher icon masters (generated)
 │   ├── lib/

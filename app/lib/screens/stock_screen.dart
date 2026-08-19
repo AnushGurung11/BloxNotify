@@ -1,9 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/fruit.dart';
-import '../models/prediction.dart';
 import '../services/stock_api.dart';
 import '../services/update_service.dart';
 
@@ -18,7 +19,16 @@ String formatStockTimestamp(DateTime dt) {
   return '${local.year}-$month-$day $hour:$mm $ampm';
 }
 
-/// Shows the current stock as a compact single row plus the stock history.
+/// Formats a duration as `HH:MM:SS`.
+String formatCountdown(Duration d) {
+  final h = d.inHours.toString().padLeft(2, '0');
+  final m = (d.inMinutes % 60).toString().padLeft(2, '0');
+  final s = (d.inSeconds % 60).toString().padLeft(2, '0');
+  return '$h:$m:$s';
+}
+
+/// Shows the current stock for both dealers with countdowns to the next
+/// rotation.
 class StockScreen extends StatefulWidget {
   const StockScreen({
     super.key,
@@ -42,19 +52,13 @@ class StockScreen extends StatefulWidget {
 
 class _StockScreenState extends State<StockScreen> {
   late Future<StockSnapshot> _future;
-  late Future<PredictionResult?> _predictionsFuture;
   late final UpdateService _updateService;
   bool _updateChecked = false;
-
-  /// Fetches predictions; failures are swallowed — the section simply hides.
-  Future<PredictionResult?> _fetchPredictionsSafely() =>
-      widget.stockApi.fetchPredictions().catchError((_) => null);
 
   @override
   void initState() {
     super.initState();
     _future = widget.stockApi.fetchCurrentStock();
-    _predictionsFuture = _fetchPredictionsSafely();
     _updateService = widget.updateService ?? UpdateService();
     _checkForUpdate();
   }
@@ -100,11 +104,7 @@ class _StockScreenState extends State<StockScreen> {
 
   Future<void> _refresh() async {
     final future = widget.stockApi.fetchCurrentStock();
-    final predictionsFuture = _fetchPredictionsSafely();
-    setState(() {
-      _future = future;
-      _predictionsFuture = predictionsFuture;
-    });
+    setState(() => _future = future);
     try {
       await future;
     } catch (_) {
@@ -113,10 +113,7 @@ class _StockScreenState extends State<StockScreen> {
   }
 
   void _reload() {
-    setState(() {
-      _future = widget.stockApi.fetchCurrentStock();
-      _predictionsFuture = _fetchPredictionsSafely();
-    });
+    setState(() => _future = widget.stockApi.fetchCurrentStock());
   }
 
   @override
@@ -136,11 +133,7 @@ class _StockScreenState extends State<StockScreen> {
           if (stock.isEmpty) {
             return _EmptyView(onRetry: _reload);
           }
-          return _StockView(
-            stock: stock,
-            onRefresh: _refresh,
-            predictions: _predictionsFuture,
-          );
+          return _StockView(stock: stock, onRefresh: _refresh);
         },
       ),
     );
@@ -148,20 +141,14 @@ class _StockScreenState extends State<StockScreen> {
 }
 
 class _StockView extends StatelessWidget {
-  const _StockView({
-    required this.stock,
-    required this.onRefresh,
-    required this.predictions,
-  });
+  const _StockView({required this.stock, required this.onRefresh});
 
   final StockSnapshot stock;
   final Future<void> Function() onRefresh;
-  final Future<PredictionResult?> predictions;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final updatedAt = stock.updatedAt;
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
@@ -169,38 +156,24 @@ class _StockView extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           Text(
-            updatedAt == null
+            stock.normal.updatedAt == null
                 ? 'Never updated'
-                : 'Last updated: ${formatStockTimestamp(updatedAt)}',
+                : 'Last updated: ${formatStockTimestamp(stock.normal.updatedAt!)}',
             style: theme.textTheme.bodySmall,
           ),
-          const SizedBox(height: 12),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final fruit in stock.fruits) _FruitTile(fruit: fruit),
-              ],
-            ),
+          const SizedBox(height: 16),
+          _DealerSection(
+            title: 'Normal Dealer',
+            dealer: stock.normal,
+            icon: Icons.storefront,
           ),
-          FutureBuilder<PredictionResult?>(
-            future: predictions,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const SizedBox.shrink();
-              }
-              final result = snapshot.data;
-              if (result == null || result.predictions.isEmpty) {
-                return const SizedBox.shrink();
-              }
-              return _PredictionsSection(result: result);
-            },
-          ),
-          if (stock.history.isNotEmpty) ...[
+          if (stock.mirage.fruits.isNotEmpty) ...[
             const SizedBox(height: 24),
-            Text('Stock History', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 8),
-            for (final entry in stock.history) _HistoryTile(entry: entry),
+            _DealerSection(
+              title: 'Mirage Dealer',
+              dealer: stock.mirage,
+              icon: Icons.auto_awesome,
+            ),
           ],
         ],
       ),
@@ -208,109 +181,82 @@ class _StockView extends StatelessWidget {
   }
 }
 
-class _PredictionsSection extends StatelessWidget {
-  const _PredictionsSection({required this.result});
+class _DealerSection extends StatelessWidget {
+  const _DealerSection({
+    required this.title,
+    required this.dealer,
+    required this.icon,
+  });
 
-  final PredictionResult result;
+  final String title;
+  final DealerStock dealer;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final rating = result.rating;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 24),
-        Text('Predicted Next Stock', style: theme.textTheme.titleMedium),
-        if (result.nextResetAt != null) ...[
-          const SizedBox(height: 2),
-          Text(
-            'Next rotation: ${formatStockTimestamp(result.nextResetAt!)}',
-            style: theme.textTheme.bodySmall,
-          ),
-        ],
-        const SizedBox(height: 4),
-        Text(
-          'Based on ${_rotationsLabel(rating)} of wiki stock history',
-          style: theme.textTheme.bodySmall,
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Row(
           children: [
-            for (final (i, p) in result.predictions.indexed)
-              _PredictionChip(rank: i + 1, prediction: p),
+            Icon(icon, size: 20, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            Text(title, style: theme.textTheme.titleLarge),
           ],
         ),
-        if (rating != null) ...[
-          const SizedBox(height: 12),
-          Row(
+        const SizedBox(height: 2),
+        if (dealer.nextResetAt != null)
+          _CountdownText(nextResetAt: dealer.nextResetAt!),
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
             children: [
-              Icon(Icons.speed, size: 16, color: theme.colorScheme.primary),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  'Model rating: ${rating.top3Accuracy.toStringAsFixed(1)}% '
-                  'top-3 accuracy '
-                  '(${rating.top1Accuracy.toStringAsFixed(1)}% top-1, '
-                  '${rating.testedRotations} rotations backtested)',
-                  style: theme.textTheme.bodySmall,
-                ),
-              ),
+              for (final fruit in dealer.fruits) _FruitTile(fruit: fruit),
             ],
           ),
-        ],
+        ),
       ],
     );
   }
-
-  String _rotationsLabel(PredictionRating? rating) {
-    if (rating == null || rating.testedRotations == 0) return '';
-    final n = rating.testedRotations;
-    if (n < 1000) return '$n';
-    return '${((n / 1000) * 10).floor() / 10}k';
-  }
 }
 
-class _PredictionChip extends StatelessWidget {
-  const _PredictionChip({required this.rank, required this.prediction});
+/// Ticks every second, showing the time until the next stock rotation.
+class _CountdownText extends StatefulWidget {
+  const _CountdownText({required this.nextResetAt});
 
-  final int rank;
-  final FruitPrediction prediction;
+  final DateTime nextResetAt;
+
+  @override
+  State<_CountdownText> createState() => _CountdownTextState();
+}
+
+class _CountdownTextState extends State<_CountdownText> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final confidence = (prediction.confidence * 100).clamp(0, 100);
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '#$rank ${prediction.name}',
-              style: theme.textTheme.titleSmall,
-            ),
-            const SizedBox(height: 4),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: confidence / 100,
-                minHeight: 4,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              '${confidence.toStringAsFixed(0)}% confidence',
-              style: theme.textTheme.labelSmall,
-            ),
-          ],
-        ),
-      ),
+    final now = DateTime.now().toUtc();
+    final diff = widget.nextResetAt.difference(now);
+    final remaining = diff.isNegative ? Duration.zero : diff;
+    return Text(
+      'Next rotation in ${formatCountdown(remaining)}',
+      style: Theme.of(context).textTheme.bodySmall,
     );
   }
 }
@@ -345,29 +291,6 @@ class _FruitTile extends StatelessWidget {
           const SizedBox(height: 6),
           Text(fruit.name, style: theme.textTheme.bodyMedium),
         ],
-      ),
-    );
-  }
-}
-
-class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.entry});
-
-  final StockHistoryEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final when = entry.updatedAt == null
-        ? 'Unknown time'
-        : formatStockTimestamp(entry.updatedAt!);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        dense: true,
-        leading: Icon(Icons.history, color: theme.colorScheme.primary),
-        title: Text(entry.fruits.join(', ')),
-        subtitle: Text(when),
       ),
     );
   }

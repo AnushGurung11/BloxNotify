@@ -20,7 +20,7 @@ services:
     image:
       url: ghcr.io/anushgurung11/blox-notify-backend:latest
     plan: free
-    healthCheckPath: /stock
+    healthCheckPath: /health
     envVars:
       - key: PORT
         value: 3000
@@ -30,7 +30,12 @@ services:
         value: stock_updates
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
-    # Note: the "last known stock" state file lives inside the container and
-    # resets on redeploy (the first poll after a restart records the current
-    # stock without issues). To persist it across redeploys, add a Render disk
-    # (paid plans only) mounted at /app/data and set STOCK_FILE accordingly.
+    # IMPORTANT (free plan): Render spins the service down after 15 minutes
+    # without inbound traffic, which stops the stock poller and therefore
+    # notifications. Keep it awake with a free external uptime monitor
+    # (e.g. UptimeRobot, https://uptimerobot.com) that pings GET /health
+    # every 5 minutes — the request counts as activity and prevents spin-down.
+    # The state file lives inside the container and resets on redeploy (the
+    # first poll after a restart records the current stock without issues).
+    # To persist it across redeploys, add a Render disk (paid plans only)
+    # mounted at /app/data and set STOCK_FILE accordingly.

@@ -7,7 +7,7 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "test": "jest",
-    "verify:wiki": "node scripts/verify-wiki.js",
+    "verify:stock": "node scripts/verify-stock.js",
     "verify:history": "node scripts/verify-history.js"
   },
   "keywords": [

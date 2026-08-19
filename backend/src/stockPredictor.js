@@ -1,7 +1,7 @@
 'use strict';
 
 const { parseHistory } = require('./historyParser');
-const { buildStats, backtest, rankCandidates, nextResetAt } = require('./predictor');
+const { buildStats, backtest, rankCandidates, nextResetAt, bestSlots } = require('./predictor');
 
 const DEFAULT_REFRESH_MS = 6 * 60 * 60 * 1000; // history pages change daily
 
@@ -66,6 +66,7 @@ function createStockPredictor({ fetchHistory, log = console, refreshIntervalMs =
       nextResetAt: nextResetAt(now),
       predictions: rankCandidates(stats, slot, currentFruits),
       rating,
+      bestSlots: bestSlots(stats),
     };
   }
 
