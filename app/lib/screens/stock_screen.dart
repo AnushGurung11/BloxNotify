@@ -209,13 +209,12 @@ class _DealerSection extends StatelessWidget {
         if (dealer.nextResetAt != null)
           _CountdownText(nextResetAt: dealer.nextResetAt!),
         const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(
-            children: [
-              for (final fruit in dealer.fruits) _FruitTile(fruit: fruit),
-            ],
-          ),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            for (final fruit in dealer.fruits) _FruitTile(fruit: fruit),
+          ],
         ),
       ],
     );
@@ -269,8 +268,8 @@ class _FruitTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(right: 12),
+    return SizedBox(
+      width: 72,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -289,7 +288,11 @@ class _FruitTile extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          Text(fruit.name, style: theme.textTheme.bodyMedium),
+          Text(
+            fruit.name,
+            style: theme.textTheme.bodyMedium,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );

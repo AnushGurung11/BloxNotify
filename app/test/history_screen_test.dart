@@ -48,7 +48,7 @@ void main() {
     });
   }
 
-  testWidgets('renders history entries with normal and mirage stock',
+  testWidgets('renders history entries with fruit images instead of names',
       (tester) async {
     final api = _apiWith(mockHistory([
       {
@@ -65,9 +65,19 @@ void main() {
 
     await pumpHistory(tester, api);
 
-    expect(find.text('Ice, Venom'), findsOneWidget);
-    expect(find.text('Mirage: Dough'), findsOneWidget);
+    // Names are shown as labels under FruityBlox image thumbnails.
+    expect(find.text('Ice'), findsOneWidget);
+    expect(find.text('Venom'), findsOneWidget);
+    expect(find.text('Dough'), findsOneWidget);
     expect(find.text('Portal'), findsOneWidget);
+    expect(find.text('Ice, Venom'), findsNothing);
+    expect(find.text('Mirage: Dough'), findsNothing);
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is Image && w.image.toString().contains('fruityblox.com'),
+      ),
+      findsNWidgets(4),
+    );
     // Times render through formatStockTimestamp (12-hour clock, local time).
     expect(
       find.text(formatStockTimestamp(DateTime.parse('2026-08-18T12:30:00.000Z'))),

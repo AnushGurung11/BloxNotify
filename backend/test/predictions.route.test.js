@@ -40,11 +40,11 @@ describe('GET /stock/predictions', () => {
 
     const res = await request(app).get('/stock/predictions');
     expect(res.status).toBe(200);
-    expect(predict).toHaveBeenCalledWith(['Flame']);
+    expect(predict).toHaveBeenCalledWith(['Flame'], undefined, undefined);
     expect(res.body).toEqual({
       ready: true,
       nextResetAt: Date.UTC(2026, 7, 18, 12),
-      predictions: [{ name: 'Dough', confidence: 0.25 }],
+      predictions: [{ name: 'Dough', confidence: 0.25, rarity: null }],
       rating: { top1Accuracy: 21.4, top3Accuracy: 74.8, testedRotations: 12931 },
       bestSlots: [{ hour: 20, premiumCount: 3, rotations: 10, score: 0.3 }],
     });
@@ -72,9 +72,43 @@ describe('GET /stock/predictions', () => {
     const res = await request(app).get('/stock/predictions');
     expect(res.status).toBe(200);
     expect(res.body.predictions).toEqual([
-      { name: 'Dough', confidence: 0.25, imageUrl: 'https://img/dough.png' },
-      { name: 'Gas', confidence: 0.1, imageUrl: 'https://img/gas.png' },
+      { name: 'Dough', confidence: 0.25, imageUrl: 'https://img/dough.png', rarity: null },
+      { name: 'Gas', confidence: 0.1, imageUrl: 'https://img/gas.png', rarity: null },
     ]);
     expect(imageResolver.resolveFruits).toHaveBeenCalledWith(['Dough', 'Gas']);
+  });
+
+  test('attaches rarity from the value client when one is available', async () => {
+    writeStock({ normal: { fruits: ['Flame'] } }, stockFile);
+    const predict = jest.fn(() => ({
+      nextResetAt: Date.UTC(2026, 7, 18, 12),
+      predictions: [
+        { name: 'Dough', confidence: 0.25 },
+        { name: 'Gas', confidence: 0.1 },
+      ],
+      rating: { top1Accuracy: 0, top3Accuracy: 0, testedRotations: 0 },
+    }));
+    const predictor = { isReady: () => true, predict };
+    const valueClient = {
+      getValues: jest.fn(() =>
+        Promise.resolve([
+          { name: 'Dough', category: 'Fruits', rarity: 'Mythical' },
+          { name: 'Gas', category: 'Fruits', rarity: 'Legendary' },
+          { name: 'Rocket', category: 'Gamepasses', rarity: 'Gamepass' },
+        ])
+      ),
+    };
+    const app = createApp({ stockFile, predictor, valueClient });
+
+    const res = await request(app).get('/stock/predictions');
+    expect(res.status).toBe(200);
+    expect(predict).toHaveBeenCalledWith(['Flame'], undefined, {
+      Dough: 'Mythical',
+      Gas: 'Legendary',
+    });
+    expect(res.body.predictions).toEqual([
+      { name: 'Dough', confidence: 0.25, rarity: 'Mythical' },
+      { name: 'Gas', confidence: 0.1, rarity: 'Legendary' },
+    ]);
   });
 });

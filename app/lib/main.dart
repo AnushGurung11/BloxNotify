@@ -6,6 +6,8 @@ import 'screens/history_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/predictions_screen.dart';
 import 'screens/stock_screen.dart';
+import 'screens/trade_screen.dart';
+import 'screens/values_screen.dart';
 import 'services/fcm_service.dart';
 import 'services/stock_api.dart';
 
@@ -88,7 +90,8 @@ class _BloxNotifyAppState extends State<BloxNotifyApp> {
   }
 }
 
-/// Bottom-tab shell hosting the Stock, Predictions and History screens.
+/// Bottom-tab shell hosting the Stock, Trade, Values, Predictions and
+/// History screens.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.stockApi});
 
@@ -108,6 +111,8 @@ class _HomeShellState extends State<HomeShell> {
         index: _index,
         children: [
           StockScreen(stockApi: widget.stockApi),
+          TradeScreen(stockApi: widget.stockApi),
+          ValuesScreen(stockApi: widget.stockApi),
           PredictionsScreen(stockApi: widget.stockApi),
           HistoryScreen(stockApi: widget.stockApi),
         ],
@@ -120,6 +125,16 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.storefront_outlined),
             selectedIcon: Icon(Icons.storefront),
             label: 'Stock',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.swap_horiz_outlined),
+            selectedIcon: Icon(Icons.swap_horiz),
+            label: 'Trade',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long),
+            label: 'Values',
           ),
           NavigationDestination(
             icon: Icon(Icons.query_stats_outlined),

@@ -39,25 +39,26 @@ void main() {
     });
   }
 
-  testWidgets('renders prediction cards with images, confidence and rating',
+  testWidgets('renders prediction cards with images, rarity, confidence and rating',
       (tester) async {
     final api = _apiWith(mockPredictions({
       'ready': true,
       'nextResetAt': DateTime.now().toUtc().millisecondsSinceEpoch +
           2 * 3600 * 1000,
       'predictions': [
-        {'name': 'Dough', 'confidence': 0.31, 'imageUrl': 'http://test.local/dough.png'},
-        {'name': 'Venom', 'confidence': 0.22, 'imageUrl': null},
+        {
+          'name': 'Dough',
+          'confidence': 0.31,
+          'imageUrl': 'http://test.local/dough.png',
+          'rarity': 'Mythical',
+        },
+        {'name': 'Venom', 'confidence': 0.22, 'imageUrl': null, 'rarity': null},
       ],
       'rating': {
         'top1Accuracy': 32.3,
         'top3Accuracy': 63.2,
         'testedRotations': 10972,
       },
-      'bestSlots': [
-        {'hour': 20, 'premiumCount': 42, 'rotations': 900, 'score': 0.047},
-        {'hour': 16, 'premiumCount': 21, 'rotations': 900, 'score': 0.023},
-      ],
     }));
 
     await pumpPredictions(tester, api);
@@ -65,6 +66,7 @@ void main() {
     expect(find.text('#1 Dough'), findsOneWidget);
     expect(find.text('#2 Venom'), findsOneWidget);
     expect(find.byType(Image), findsOneWidget);
+    expect(find.text('Mythical'), findsOneWidget); // rarity badge
     expect(find.textContaining('31% confidence'), findsOneWidget);
     expect(find.textContaining('Model rating: 63.2%'), findsOneWidget);
     expect(find.textContaining('10972 rotations backtested'), findsOneWidget);
@@ -72,7 +74,7 @@ void main() {
     expect(find.textContaining('in 0'), findsOneWidget); // countdown present
   });
 
-  testWidgets('renders the best-time slots ranked best first', (tester) async {
+  testWidgets('does not show a Best Times section anymore', (tester) async {
     final api = _apiWith(mockPredictions({
       'ready': true,
       'nextResetAt': DateTime.now().toUtc().millisecondsSinceEpoch +
@@ -85,19 +87,12 @@ void main() {
         'top3Accuracy': 63.2,
         'testedRotations': 10972,
       },
-      'bestSlots': [
-        {'hour': 20, 'premiumCount': 42, 'rotations': 900, 'score': 0.047},
-        {'hour': 16, 'premiumCount': 21, 'rotations': 900, 'score': 0.023},
-      ],
     }));
 
     await pumpPredictions(tester, api);
 
-    expect(find.text('Best Times to Check'), findsOneWidget);
-    expect(find.textContaining('20:00 UTC'), findsOneWidget);
-    expect(find.textContaining('16:00 UTC'), findsOneWidget);
-    expect(find.textContaining('42 premium fruits across 900 rotations'),
-        findsOneWidget);
+    expect(find.text('Best Times to Check'), findsNothing);
+    expect(find.textContaining('20:00 UTC'), findsNothing);
   });
 
   testWidgets('shows a friendly empty state when the backend has no model',

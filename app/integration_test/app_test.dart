@@ -33,6 +33,8 @@ void main() {
 
     expect(find.text('Current Stock'), findsOneWidget);
     expect(find.text('Stock'), findsOneWidget); // bottom tab bar
+    expect(find.text('Trade'), findsOneWidget);
+    expect(find.text('Values'), findsOneWidget);
     expect(find.text('Predictions'), findsOneWidget);
     expect(find.text('History'), findsOneWidget);
   });

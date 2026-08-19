@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/fruit.dart';
 import '../services/stock_api.dart';
+import '../utils/fruit_images.dart';
 import 'stock_screen.dart' show formatStockTimestamp;
 
 /// Shows the past stock snapshots recorded by the backend.
@@ -118,14 +119,17 @@ class _HistoryTile extends StatelessWidget {
               ],
             ),
             if (entry.fruits.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Text(
-                entry.fruits.join(', '),
-                style: theme.textTheme.bodyMedium,
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final fruit in entry.fruits) _FruitThumb(name: fruit),
+                ],
               ),
             ],
             if (entry.mirageFruits.isNotEmpty) ...[
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -133,9 +137,13 @@ class _HistoryTile extends StatelessWidget {
                       size: 14, color: theme.colorScheme.tertiary),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
-                      'Mirage: ${entry.mirageFruits.join(', ')}',
-                      style: theme.textTheme.bodySmall,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final fruit in entry.mirageFruits)
+                          _FruitThumb(name: fruit, mirage: true),
+                      ],
                     ),
                   ),
                 ],
@@ -147,6 +155,57 @@ class _HistoryTile extends StatelessWidget {
                 child: Text('(empty snapshot)',
                     style: theme.textTheme.bodySmall),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Fruit thumbnail with the FruityBlox image and a letter fallback.
+class _FruitThumb extends StatelessWidget {
+  const _FruitThumb({required this.name, this.mirage = false});
+
+  final String name;
+  final bool mirage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Tooltip(
+      message: name,
+      child: SizedBox(
+        width: 48,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: Image.network(
+                  fruitImageUrl(name),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => ColoredBox(
+                    color: theme.colorScheme.surfaceContainerHighest,
+                    child: Center(
+                      child: Text(
+                        fruitInitial(name),
+                        style: theme.textTheme.titleMedium,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              name,
+              style: theme.textTheme.labelSmall,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+            ),
           ],
         ),
       ),

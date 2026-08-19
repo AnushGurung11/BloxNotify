@@ -4,6 +4,7 @@ const path = require('path');
 const express = require('express');
 const { createStockRouter } = require('./routes/stock');
 const { createPredictionsRouter } = require('./routes/predictions');
+const { createValuesRouter } = require('./routes/values');
 
 /**
  * Builds the Express app. Pure of side effects so Supertest can import it
@@ -13,9 +14,10 @@ const { createPredictionsRouter } = require('./routes/predictions');
  * @param {string} [deps.stockFile] path to the state file
  * @param {object} [deps.imageResolver] optional createImageResolver instance
  * @param {object} [deps.predictor] optional createStockPredictor instance
+ * @param {object} [deps.valueClient] optional createValueClient instance
  * @returns {express.Express}
  */
-function createApp({ stockFile, imageResolver, predictor } = {}) {
+function createApp({ stockFile, imageResolver, predictor, valueClient } = {}) {
   const app = express();
   app.use(express.json());
 
@@ -24,7 +26,8 @@ function createApp({ stockFile, imageResolver, predictor } = {}) {
   app.get('/health', (req, res) => res.json({ ok: true }));
 
   app.use('/', createStockRouter({ stockFile, imageResolver }));
-  app.use('/', createPredictionsRouter({ stockFile, predictor, imageResolver }));
+  app.use('/', createPredictionsRouter({ stockFile, predictor, imageResolver, valueClient }));
+  app.use('/', createValuesRouter({ valueClient }));
   return app;
 }
 

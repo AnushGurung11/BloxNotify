@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../models/prediction.dart';
 import '../services/stock_api.dart';
-import 'stock_screen.dart' show formatCountdown, formatStockTimestamp;
+import 'stock_screen.dart' show formatCountdown;
 
-/// Shows the predicted next stock with fruit images, confidence bars, the
-/// model's backtested rating, and the historically best rotation times.
+/// Shows the predicted next stock with fruit images, confidence bars,
+/// rarity badges, and the model's backtested rating.
 class PredictionsScreen extends StatefulWidget {
   const PredictionsScreen({super.key, required this.stockApi});
 
@@ -99,21 +99,6 @@ class _PredictionsView extends StatelessWidget {
             ],
           ),
         ],
-        if (result.bestSlots.isNotEmpty) ...[
-          const SizedBox(height: 24),
-          Text('Best Times to Check', style: theme.textTheme.titleLarge),
-          const SizedBox(height: 4),
-          Text(
-            'UTC slots ranked by how many premium fruits appeared '
-            'per rotation in the recorded history.',
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 12),
-          for (final (i, slot) in result.bestSlots.indexed) ...[
-            _BestSlotTile(rank: i + 1, slot: slot),
-            const SizedBox(height: 8),
-          ],
-        ],
       ],
     );
   }
@@ -200,9 +185,20 @@ class _PredictionCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    '#$rank ${prediction.name}',
-                    style: theme.textTheme.titleSmall,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          '#$rank ${prediction.name}',
+                          style: theme.textTheme.titleSmall,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (prediction.rarity != null) ...[
+                        const SizedBox(width: 8),
+                        _RarityChip(rarity: prediction.rarity!),
+                      ],
+                    ],
                   ),
                   const SizedBox(height: 6),
                   ClipRRect(
@@ -229,45 +225,33 @@ class _PredictionCard extends StatelessWidget {
   }
 }
 
-class _BestSlotTile extends StatelessWidget {
-  const _BestSlotTile({required this.rank, required this.slot});
+/// Small rarity badge; Legendary and Mythical are highlighted.
+class _RarityChip extends StatelessWidget {
+  const _RarityChip({required this.rarity});
 
-  final int rank;
-  final BestSlot slot;
+  final String rarity;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final local = DateTime.fromMillisecondsSinceEpoch(
-      DateUtils.dateOnly(DateTime.now()).millisecondsSinceEpoch +
-          slot.hour * 3600 * 1000,
-    );
-    return Card(
-      margin: EdgeInsets.zero,
-      child: ListTile(
-        dense: true,
-        leading: CircleAvatar(
-          radius: 14,
-          backgroundColor: rank == 1
-              ? theme.colorScheme.primary
-              : theme.colorScheme.surfaceContainerHighest,
-          child: Text(
-            '$rank',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: rank == 1
-                  ? theme.colorScheme.onPrimary
-                  : theme.colorScheme.onSurface,
-            ),
-          ),
-        ),
-        title: Text(
-          '${slot.hour.toString().padLeft(2, '0')}:00 UTC'
-          ' (${formatStockTimestamp(local).split(' ').last}) local',
-          style: theme.textTheme.titleSmall,
-        ),
-        subtitle: Text(
-          '${slot.premiumCount} premium fruits across ${slot.rotations} rotations',
-          style: theme.textTheme.bodySmall,
+    final isPremium = rarity == 'Legendary' || rarity == 'Mythical';
+    final background = isPremium
+        ? theme.colorScheme.tertiaryContainer
+        : theme.colorScheme.surfaceContainerHighest;
+    final foreground = isPremium
+        ? theme.colorScheme.onTertiaryContainer
+        : theme.colorScheme.onSurfaceVariant;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        rarity,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w600,
         ),
       ),
     );

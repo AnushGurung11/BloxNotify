@@ -79,23 +79,47 @@ test('reaches 100% accuracy on a deterministic pattern', () => {
       expect(result.rating.testedRotations).toBeGreaterThan(0);
     });
 
-    test('ranks the UTC slots by premium fruit presence', () => {
+    test('adds Legendary/Mythical fruits when rarities are given', () => {
       const entries = [
-        { ts: Date.UTC(2026, 7, 1, 20), fruits: ['A', 'Dough'] },
-        { ts: Date.UTC(2026, 7, 2, 20), fruits: ['A', 'Dough'] },
-        { ts: Date.UTC(2026, 7, 3, 20), fruits: ['A', 'B'] },
-        { ts: Date.UTC(2026, 7, 1, 0), fruits: ['C', 'D'] },
-        { ts: Date.UTC(2026, 7, 2, 0), fruits: ['C', 'E'] },
+        // B always follows A -> B is the clear top candidate.
+        ...Array.from({ length: 10 }, (_, i) => ({
+          ts: Date.UTC(2026, 7, 1 + i, 12),
+          fruits: ['A', 'B'],
+        })),
+        // C and E appear often; D (Legendary) only once, so its score is low.
+        { ts: Date.UTC(2026, 7, 11, 12), fruits: ['C', 'E'] },
+        { ts: Date.UTC(2026, 7, 12, 12), fruits: ['C', 'E'] },
+        { ts: Date.UTC(2026, 7, 13, 12), fruits: ['D'] },
       ];
       const result = predict({
         entries,
-        currentFruits: ['X'],
+        currentFruits: ['A'],
+        rarities: { B: 'Mythical', D: 'Legendary', C: 'Rare' },
+        now: new Date('2026-08-20T10:00:00.000Z'), // next slot: 12:00 UTC
+      });
+      const names = result.predictions.map((p) => p.name);
+      expect(names[0]).toBe('B');
+      expect(names.slice(0, 3)).not.toContain('D');
+      expect(names).toContain('D'); // appended as a Legendary pick
+      expect(result.predictions).toHaveLength(4);
+    });
+
+    test('keeps a plain top-3 when no rarities are given', () => {
+      const entries = [
+        { ts: Date.UTC(2026, 7, 1, 12), fruits: ['A', 'B'] },
+        { ts: Date.UTC(2026, 7, 2, 12), fruits: ['C', 'D'] },
+        { ts: Date.UTC(2026, 7, 3, 12), fruits: ['E', 'F'] },
+        { ts: Date.UTC(2026, 7, 4, 12), fruits: ['A', 'B'] },
+        { ts: Date.UTC(2026, 7, 5, 12), fruits: ['C', 'D'] },
+        { ts: Date.UTC(2026, 7, 6, 12), fruits: ['E', 'F'] },
+      ];
+      const result = predict({
+        entries,
+        currentFruits: ['A'],
         now: new Date('2026-08-20T10:00:00.000Z'),
       });
-      expect(result.bestSlots).toHaveLength(6);
-      expect(result.bestSlots[0].hour).toBe(20);
-      expect(result.bestSlots[0].score).toBeGreaterThan(result.bestSlots[1].score);
-      expect(result.bestSlots[0].premiumCount).toBe(2);
+      expect(result.predictions).toHaveLength(3);
+      expect(result.predictions[0].name).toBe('C');
     });
   });
 });

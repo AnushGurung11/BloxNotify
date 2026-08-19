@@ -8,7 +8,8 @@
     "dev": "node --watch src/index.js",
     "test": "jest",
     "verify:stock": "node scripts/verify-stock.js",
-    "verify:history": "node scripts/verify-history.js"
+    "verify:history": "node scripts/verify-history.js",
+    "verify:values": "node scripts/verify-values.js"
   },
   "keywords": [
     "blox-fruits",
