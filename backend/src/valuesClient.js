@@ -16,7 +16,9 @@
  *
  * Values are cached in memory for `cacheTtlMs` so repeated requests do not
  * hammer the site. `normalValue` is the in-game trade value; `permanentValue`
- * is the Robux (permanent) value — null when the item has none.
+ * is the trade value of the permanent version of the item, in the same
+ * in-game units as `normalValue` (game.guide's "Perm" column) — null when
+ * the item has none.
  */
 
 const VALUES_URL = 'https://www.game.guide/blox-fruits-value-list';

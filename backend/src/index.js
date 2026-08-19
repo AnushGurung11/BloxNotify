@@ -11,6 +11,7 @@ const { DEFAULT_TOPIC } = require('./notifier');
 const { createStockPredictor } = require('./stockPredictor');
 const { fetchHistoryWikitext } = require('./historyClient');
 const { createValueClient } = require('./valuesClient');
+const { createStockHistoryClient } = require('./stockHistoryClient');
 
 const PORT = Number(process.env.PORT) || 3000;
 const stockFile = process.env.STOCK_FILE || DEFAULT_STOCK_FILE;
@@ -36,7 +37,9 @@ const predictor = createStockPredictor({
 
 const valueClient = createValueClient({ axios });
 
-const app = createApp({ stockFile, imageResolver, predictor, valueClient });
+const historyClient = createStockHistoryClient({ axios });
+
+const app = createApp({ stockFile, imageResolver, predictor, valueClient, historyClient });
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Blox Notify backend listening on :${PORT}`);

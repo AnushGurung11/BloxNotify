@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../config.dart';
 import '../models/fruit.dart';
+import '../models/history.dart';
 import '../models/prediction.dart';
 import '../models/value.dart';
 
@@ -105,5 +106,32 @@ class StockApi {
     return (body['items'] as List<dynamic>? ?? const [])
         .map((item) => ValueItem.fromJson(item as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Fetches the stock rotation history (up to 30 days) from /stock/history.
+  /// Returns null when the backend has no history yet.
+  Future<StockHistory?> fetchHistory() async {
+    final http.Response response;
+    try {
+      response = await _client
+          .get(Uri.parse('$_baseUrl/stock/history'))
+          .timeout(const Duration(seconds: 10));
+    } catch (e) {
+      throw StockApiException('Could not reach the server ($e)');
+    }
+
+    if (response.statusCode != 200) {
+      throw StockApiException('Server responded with ${response.statusCode}');
+    }
+
+    final Map<String, dynamic> body;
+    try {
+      body = jsonDecode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      throw StockApiException('Unexpected server response ($e)');
+    }
+
+    if (body['ready'] != true) return null;
+    return StockHistory.fromJson(body);
   }
 }

@@ -4,17 +4,50 @@ const express = require('express');
 const stockStore = require('../stockStore');
 const fruitybloxClient = require('../fruitybloxClient');
 
+// /stock keeps a small preview of the history for backward compatibility;
+// the full 30-day window is served by /stock/history.
+const HISTORY_PREVIEW_LIMIT = 50;
+
+/**
+ * Converts one local snapshot into one event per dealer. Local snapshots are
+ * only used when the remote bloxvalues source is unavailable.
+ *
+ * @param {object} entry stored snapshot ({fruits, mirageFruits, updatedAt})
+ * @returns {Array<object>} 0-2 normalized events (Normal and/or Mirage)
+ */
+function localEntryToEvents(entry) {
+  const time = Date.parse(entry && entry.updatedAt);
+  if (!Number.isFinite(time)) return [];
+  const timestamp = Math.floor(time / 1000);
+  const timeIso = new Date(time).toISOString();
+  const events = [];
+  const normalItems = (entry.fruits || []).map((name) => ({ name }));
+  if (normalItems.length > 0) {
+    events.push({ type: 'Normal', timestamp, time: timeIso, items: normalItems });
+  }
+  const mirageItems = (entry.mirageFruits || []).map((name) => ({ name }));
+  if (mirageItems.length > 0) {
+    events.push({ type: 'Mirage', timestamp, time: timeIso, items: mirageItems });
+  }
+  return events;
+}
+
 /**
  * GET /stock — returns the last-known stock for both dealers (normal +
  * mirage), enriched with image URLs when a resolver is provided, plus the
- * next reset times and the recent change history.
+ * next reset times and a preview of the recent change history.
+ *
+ * GET /stock/history — returns the full 30-day rotation history as events
+ * (Normal/Mirage dealer restocks with their fruits), sourced from
+ * bloxvalues.net when available and falling back to local snapshots.
  *
  * @param {object} deps
  * @param {string} [deps.stockFile] path to the state file
  * @param {object} [deps.imageResolver] optional createImageResolver instance
+ * @param {object} [deps.historyClient] optional createStockHistoryClient instance
  * @param {Date} [deps.now] reference time (tests)
  */
-function createStockRouter({ stockFile, imageResolver, now } = {}) {
+function createStockRouter({ stockFile, imageResolver, historyClient, now } = {}) {
   const router = express.Router();
 
   router.get('/stock', async (req, res) => {
@@ -48,7 +81,36 @@ function createStockRouter({ stockFile, imageResolver, now } = {}) {
       // Backward-compatible alias: the normal dealer's stock.
       fruits: normal.fruits,
       updatedAt: normal.updatedAt,
-      history: stored.history || [],
+      history: (stored.history || []).slice(0, HISTORY_PREVIEW_LIMIT),
+    });
+  });
+
+  router.get('/stock/history', async (req, res) => {
+    const stored = stockStore.readStock(stockFile);
+    const local = (stored.history || []).flatMap(localEntryToEvents);
+    local.sort((a, b) => b.timestamp - a.timestamp);
+
+    let remote = null;
+    let source = 'local';
+    if (historyClient) {
+      try {
+        const result = await historyClient.getHistory();
+        remote = result.events;
+        if (remote.length > 0) source = 'bloxvalues';
+      } catch (err) {
+        console.warn(`GET /stock/history: bloxvalues fetch failed: ${err.message}`);
+      }
+    }
+
+    // bloxvalues covers the whole 30-day window, so it replaces local
+    // snapshots when available.
+    const events = remote && remote.length > 0 ? remote : local;
+    const latest = events[0];
+    res.json({
+      ready: events.length > 0,
+      source,
+      updatedAt: latest ? latest.timestamp * 1000 : null,
+      events,
     });
   });
 

@@ -15,9 +15,10 @@ const { createValuesRouter } = require('./routes/values');
  * @param {object} [deps.imageResolver] optional createImageResolver instance
  * @param {object} [deps.predictor] optional createStockPredictor instance
  * @param {object} [deps.valueClient] optional createValueClient instance
+ * @param {object} [deps.historyClient] optional createStockHistoryClient instance
  * @returns {express.Express}
  */
-function createApp({ stockFile, imageResolver, predictor, valueClient } = {}) {
+function createApp({ stockFile, imageResolver, predictor, valueClient, historyClient } = {}) {
   const app = express();
   app.use(express.json());
 
@@ -25,7 +26,7 @@ function createApp({ stockFile, imageResolver, predictor, valueClient } = {}) {
   // the free-tier instance awake so the poller runs continuously.
   app.get('/health', (req, res) => res.json({ ok: true }));
 
-  app.use('/', createStockRouter({ stockFile, imageResolver }));
+  app.use('/', createStockRouter({ stockFile, imageResolver, historyClient }));
   app.use('/', createPredictionsRouter({ stockFile, predictor, imageResolver, valueClient }));
   app.use('/', createValuesRouter({ valueClient }));
   return app;

@@ -4,8 +4,8 @@ import '../models/value.dart';
 import '../services/stock_api.dart';
 
 /// Shows the live fruit/item values from game.guide: in-game and permanent
-/// (Robux) values, demand, trend and rarity, with search and category
-/// filters.
+/// values, demand, trend and rarity, in a grid with search, category and
+/// rarity filters.
 class ValuesScreen extends StatefulWidget {
   const ValuesScreen({super.key, required this.stockApi});
 
@@ -19,6 +19,7 @@ class _ValuesScreenState extends State<ValuesScreen> {
   late Future<List<ValueItem>?> _future;
   String _query = '';
   String _category = 'All';
+  String _rarity = 'All';
 
   @override
   void initState() {
@@ -51,8 +52,10 @@ class _ValuesScreenState extends State<ValuesScreen> {
             items: items,
             query: _query,
             category: _category,
+            rarity: _rarity,
             onQueryChanged: (value) => setState(() => _query = value),
             onCategoryChanged: (value) => setState(() => _category = value),
+            onRarityChanged: (value) => setState(() => _rarity = value),
           );
         },
       ),
@@ -60,20 +63,26 @@ class _ValuesScreenState extends State<ValuesScreen> {
   }
 }
 
+const _rarityFilters = ['All', 'Common', 'Uncommon', 'Rare', 'Legendary', 'Mythical'];
+
 class _ValuesView extends StatelessWidget {
   const _ValuesView({
     required this.items,
     required this.query,
     required this.category,
+    required this.rarity,
     required this.onQueryChanged,
     required this.onCategoryChanged,
+    required this.onRarityChanged,
   });
 
   final List<ValueItem> items;
   final String query;
   final String category;
+  final String rarity;
   final ValueChanged<String> onQueryChanged;
   final ValueChanged<String> onCategoryChanged;
+  final ValueChanged<String> onRarityChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -87,8 +96,9 @@ class _ValuesView extends StatelessWidget {
     final q = query.trim().toLowerCase();
     final filtered = items.where((item) {
       final matchesCategory = category == 'All' || item.category == category;
+      final matchesRarity = rarity == 'All' || item.rarity == rarity;
       final matchesQuery = q.isEmpty || item.name.toLowerCase().contains(q);
-      return matchesCategory && matchesQuery;
+      return matchesCategory && matchesRarity && matchesQuery;
     }).toList();
 
     return Column(
@@ -126,11 +136,39 @@ class _ValuesView extends StatelessWidget {
             ),
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: SizedBox(
+            height: 32,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final r in _rarityFilters)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(r),
+                      selected: rarity == r,
+                      onSelected: (_) => onRarityChanged(r),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
         Expanded(
           child: filtered.isEmpty
               ? const Center(child: Text('No items match your search'))
-              : ListView.builder(
+              : GridView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 200,
+                    mainAxisExtent: 190,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                  ),
                   itemCount: filtered.length,
                   itemBuilder: (context, index) =>
                       _ValueTile(item: filtered[index]),
@@ -150,93 +188,94 @@ class _ValueTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Card(
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: EdgeInsets.zero,
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: item.imageUrl != null
-                    ? Image.network(
-                        item.imageUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => _Placeholder(
-                            name: item.name, icon: Icons.category),
-                      )
-                    : _Placeholder(name: item.name, icon: Icons.category),
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: item.imageUrl != null
+                      ? Image.network(
+                          item.imageUrl!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, _, _) => _Placeholder(
+                              name: item.name, icon: Icons.category),
+                        )
+                      : _Placeholder(name: item.name, icon: Icons.category),
+                ),
               ),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          item.name,
-                          style: theme.textTheme.titleSmall,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (item.rarity != null) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            item.rarity!,
-                            style: theme.textTheme.labelSmall,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${formatValue(item.normalValue)} in-game'
-                    '${item.permanentValue != null ? ' · ${formatValue(item.permanentValue)} Robux' : ''}',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      _DemandBadge(demand: item.demand),
-                      if (item.trend != null) ...[
-                        const SizedBox(width: 8),
-                        Icon(
-                          item.trend == 'Increasing' || item.trend == 'Rising'
-                              ? Icons.trending_up
-                              : item.trend == 'Decreasing' ||
-                                      item.trend == 'Falling'
-                                  ? Icons.trending_down
-                                  : Icons.trending_flat,
-                          size: 14,
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          item.trend!,
-                          style: theme.textTheme.labelSmall,
-                        ),
-                      ],
-                    ],
+            const SizedBox(height: 8),
+            Text(
+              item.name,
+              style: theme.textTheme.titleSmall,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            if (item.rarity != null) ...[
+              const SizedBox(height: 2),
+              _RarityBadge(rarity: item.rarity!),
+            ],
+            const Spacer(),
+            Text(
+              formatValue(item.normalValue),
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            if (item.permanentValue != null)
+              Text(
+                'Perm ${formatValue(item.permanentValue)}',
+                style: theme.textTheme.labelSmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                _DemandBadge(demand: item.demand),
+                if (item.trend != null) ...[
+                  const Spacer(),
+                  Icon(
+                    item.trend == 'Increasing' || item.trend == 'Rising'
+                        ? Icons.trending_up
+                        : item.trend == 'Decreasing' ||
+                                item.trend == 'Falling'
+                            ? Icons.trending_down
+                            : Icons.trending_flat,
+                    size: 14,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
                 ],
-              ),
+              ],
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _RarityBadge extends StatelessWidget {
+  const _RarityBadge({required this.rarity});
+
+  final String rarity;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(rarity, style: theme.textTheme.labelSmall),
     );
   }
 }

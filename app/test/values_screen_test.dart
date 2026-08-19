@@ -77,20 +77,22 @@ void main() {
     await pumpFrames(tester);
   }
 
-  testWidgets('renders items with values, demand, trend and rarity',
+  testWidgets('renders items in a grid with values, rarity and demand',
       (tester) async {
     final api = _apiWith(mockValues(_values));
     await pumpValues(tester, api);
 
     expect(find.text('Dragon'), findsOneWidget);
-    expect(find.text('120M in-game · 4.5K Robux'), findsOneWidget);
-    expect(find.text('Mythical'), findsOneWidget);
-    expect(find.text('Very High'), findsOneWidget);
+    expect(find.text('120M'), findsOneWidget);
+    expect(find.text('Perm 4.5K'), findsOneWidget);
     expect(find.text('Rocket'), findsOneWidget);
-    expect(find.text('1K in-game'), findsOneWidget);
+    expect(find.text('1K'), findsOneWidget);
     expect(find.text('2x Money'), findsOneWidget);
-    expect(find.text('5M in-game · 450 Robux'), findsOneWidget);
-    expect(find.text('Gamepasses'), findsOneWidget); // category filter chip
+    expect(find.text('5M'), findsOneWidget);
+    expect(find.text('Perm 450'), findsOneWidget);
+    // Rarity appears both as a filter chip and on the Dragon tile.
+    expect(find.text('Mythical'), findsNWidgets(2));
+    expect(find.byType(GridView), findsWidgets);
     expect(find.byIcon(Icons.trending_down), findsOneWidget); // Falling
   });
 
@@ -110,12 +112,24 @@ void main() {
     final api = _apiWith(mockValues(_values));
     await pumpValues(tester, api);
 
-    await tester.tap(find.text('Gamepasses'));
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Gamepasses'));
     await tester.pump();
 
     expect(find.text('2x Money'), findsOneWidget);
     expect(find.text('Dragon'), findsNothing);
     expect(find.text('Rocket'), findsNothing);
+  });
+
+  testWidgets('filters items by rarity chip', (tester) async {
+    final api = _apiWith(mockValues(_values));
+    await pumpValues(tester, api);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Mythical'));
+    await tester.pump();
+
+    expect(find.text('Dragon'), findsOneWidget);
+    expect(find.text('Rocket'), findsNothing);
+    expect(find.text('2x Money'), findsNothing);
   });
 
   testWidgets('shows a retry state when values are unavailable',

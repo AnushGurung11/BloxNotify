@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/value.dart';
 import '../services/stock_api.dart';
 
-/// Trade calculator: pick the items you give and receive; the win/loss bar
-/// shows the value difference in real time using live game.guide values.
+/// Trade calculator: pick the items you give and receive; the win/loss and
+/// the value difference are shown in real time using live game.guide values.
 class TradeScreen extends StatefulWidget {
   const TradeScreen({super.key, required this.stockApi});
 
@@ -147,7 +147,6 @@ class _TradeView extends StatelessWidget {
     final receivedTotal = _receivedTotal;
     final isWin = receivedTotal >= givenTotal && receivedTotal > 0;
     final maxTotal = givenTotal > receivedTotal ? givenTotal : receivedTotal;
-    final barValue = maxTotal == 0 ? 0.0 : (receivedTotal / maxTotal);
     final difference = (receivedTotal - givenTotal).abs();
 
     return ListView(
@@ -210,31 +209,29 @@ class _TradeView extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        Text(
-          isWin ? 'Win' : 'Loss',
-          style: theme.textTheme.headlineSmall?.copyWith(
-            color: isWin ? Colors.green.shade400 : Colors.red.shade400,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: barValue,
-            minHeight: 14,
-            backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            color: isWin ? Colors.green.shade600 : Colors.red.shade600,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          maxTotal == 0
-              ? 'Add items to both sides to compare values'
-              : isWin
-                  ? 'You gain ${formatValue(difference)} in value'
-                  : 'You lose ${formatValue(difference)} in value',
-          style: theme.textTheme.bodySmall,
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(
+              isWin ? 'Win' : 'Loss',
+              style: theme.textTheme.headlineSmall?.copyWith(
+                color: isWin ? Colors.green.shade400 : Colors.red.shade400,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                maxTotal == 0
+                    ? 'Add items to both sides to compare values'
+                    : isWin
+                        ? 'You gain ${formatValue(difference)} in value'
+                        : 'You lose ${formatValue(difference)} in value',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
+          ],
         ),
         if (given.isNotEmpty || received.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -335,31 +332,118 @@ class _SideCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final item in addedItems)
-                  InputChip(
-                    label: Text(
-                      '${item.name} (${formatValue(item.normalValue)})',
-                      overflow: TextOverflow.ellipsis,
+            if (addedItems.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 4),
+                child: Text(
+                  'Nothing added yet — pick an item above.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              )
+            else
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 4,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 0.72,
+                children: [
+                  for (final item in addedItems)
+                    _TradeItemTile(
+                      item: item,
+                      onRemove: () => onRemove(item),
                     ),
-                    onDeleted: () => onRemove(item),
-                    deleteIcon: const Icon(Icons.close, size: 16),
-                  ),
-                if (addedItems.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 4),
-                    child: Text(
-                      'Nothing added yet — pick an item above.',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-              ],
-            ),
+                ],
+              ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A selected trade item shown as an image tile; tap to remove.
+class _TradeItemTile extends StatelessWidget {
+  const _TradeItemTile({required this.item, required this.onRemove});
+
+  final ValueItem item;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onRemove,
+      borderRadius: BorderRadius.circular(8),
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: item.imageUrl != null
+                        ? Image.network(
+                            item.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              child: Center(
+                                child: Text(
+                                  item.name.isNotEmpty
+                                      ? item.name[0].toUpperCase()
+                                      : '?',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                              ),
+                            ),
+                          )
+                        : ColoredBox(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: Center(
+                              child: Text(
+                                item.name.isNotEmpty
+                                    ? item.name[0].toUpperCase()
+                                    : '?',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                Positioned(
+                  top: 2,
+                  right: 2,
+                  child: GestureDetector(
+                    onTap: onRemove,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.close, size: 12, color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            item.name,
+            style: theme.textTheme.labelSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            formatValue(item.normalValue),
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.primary),
+          ),
+        ],
       ),
     );
   }

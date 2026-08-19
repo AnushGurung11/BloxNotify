@@ -108,11 +108,47 @@ describe('checkStockOnce', () => {
     );
   });
 
-  test('keeps history capped at MAX_HISTORY entries', async () => {
+  test('prunes history older than the 30-day window', async () => {
+    const { HISTORY_WINDOW_DAYS } = require('../src/poller');
+    const now = Date.parse('2026-08-19T12:00:00Z');
+    const tooOld = new Date(
+      now - (HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000 + 60000)
+    ).toISOString();
+    const recent = new Date(now - 60 * 60 * 1000).toISOString();
+    const { writeStock } = require('../src/stockStore');
+    writeStock(
+      {
+        normal: { fruits: ['Old'] },
+        history: [
+          { fruits: ['Ancient'], updatedAt: tooOld },
+          { fruits: ['RecentFruit'], updatedAt: recent },
+        ],
+      },
+      stockFile
+    );
+
+    await checkStockOnce({
+      axios: makeAxios(fixture('fruityblox-stock.html')),
+      stockFile,
+      log: { info() {}, error() {} },
+      now: new Date(now),
+    });
+
+    const stored = JSON.parse(fs.readFileSync(stockFile, 'utf8'));
+    // New head entry + the still-recent snapshot; the 30-day-old one is gone.
+    expect(stored.history).toHaveLength(2);
+    expect(stored.history.map((h) => h.fruits[0])).toEqual(['Old', 'RecentFruit']);
+  });
+
+  test('hard-caps history at MAX_HISTORY entries', async () => {
     const { MAX_HISTORY } = require('../src/poller');
+    const now = Date.now();
     const history = [];
     for (let i = 0; i < MAX_HISTORY + 5; i++) {
-      history.push({ fruits: [`Fruit${i}`], updatedAt: `t${i}` });
+      history.push({
+        fruits: [`Fruit${i}`],
+        updatedAt: new Date(now - i * 60 * 1000).toISOString(),
+      });
     }
     const { writeStock } = require('../src/stockStore');
     writeStock({ normal: { fruits: ['Old'] }, history }, stockFile);

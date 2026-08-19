@@ -20,7 +20,9 @@ class ValueItem {
   /// In-game trade value (null when unknown).
   final num? normalValue;
 
-  /// Robux (permanent) value — null when the item has none.
+  /// Trade value of the permanent version of the item, in the same in-game
+  /// units as [normalValue] (game.guide's "Perm" column) — null when the
+  /// item has none.
   final num? permanentValue;
 
   final String? demand;

@@ -20,6 +20,17 @@ Future<void> pumpFrames(WidgetTester tester) async {
   }
 }
 
+/// Uses a tall test surface so the whole trade layout (two side cards plus
+/// the verdict row) fits without scrolling.
+Future<void> pumpTrade(WidgetTester tester, StockApi api) async {
+  tester.view.physicalSize = const Size(800, 1400);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  await tester.pumpWidget(MaterialApp(home: TradeScreen(stockApi: api)));
+  await pumpFrames(tester);
+}
+
 MockClient mockValues(List<Map<String, dynamic>> items) {
   return MockClient((request) async {
     if (request.url.path.endsWith('/values')) {
@@ -84,30 +95,31 @@ Future<void> _selectAndAdd(
 }
 
 void main() {
-  testWidgets('shows a loss bar when giving more than receiving',
+  testWidgets('shows a loss when giving more than receiving',
       (tester) async {
     final api = _apiWith(mockValues(_values));
-    await tester.pumpWidget(MaterialApp(home: TradeScreen(stockApi: api)));
-    await pumpFrames(tester);
+    await pumpTrade(tester, api);
 
     await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
     await _selectAndAdd(tester, firstSide: false, itemLabel: 'Venom (10M)');
 
     expect(find.text('You give'), findsOneWidget);
     expect(find.text('You receive'), findsOneWidget);
-    expect(find.text('Dough (55M)'), findsOneWidget);
-    expect(find.text('Venom (10M)'), findsOneWidget);
-    // Totals appear in the side card header and in the comparison row.
-    expect(find.text('55M'), findsNWidgets(2)); // given total
-    expect(find.text('10M'), findsNWidgets(2)); // received total
+    // Selected items appear as image tiles (name + value in the tile).
+    expect(find.text('Dough'), findsOneWidget);
+    expect(find.text('Venom'), findsOneWidget);
+    // Each total shows in the side header, the comparison row and the tile.
+    expect(find.text('55M'), findsNWidgets(3)); // given total
+    expect(find.text('10M'), findsNWidgets(3)); // received total
     expect(find.text('Loss'), findsOneWidget);
     expect(find.text('You lose 45M in value'), findsOneWidget);
+    // No progress bar — just the win/loss verdict and amount.
+    expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
-  testWidgets('flips to a win bar when receiving more value', (tester) async {
+  testWidgets('flips to a win when receiving more value', (tester) async {
     final api = _apiWith(mockValues(_values));
-    await tester.pumpWidget(MaterialApp(home: TradeScreen(stockApi: api)));
-    await pumpFrames(tester);
+    await pumpTrade(tester, api);
 
     await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
     await _selectAndAdd(tester, firstSide: false, itemLabel: 'Dragon (120M)');
@@ -116,26 +128,23 @@ void main() {
     expect(find.text('You gain 65M in value'), findsOneWidget);
   });
 
-  testWidgets('removes an item and clears both sides', (tester) async {
+  testWidgets('removes an item from the grid and clears both sides',
+      (tester) async {
     final api = _apiWith(mockValues(_values));
-    await tester.pumpWidget(MaterialApp(home: TradeScreen(stockApi: api)));
-    await pumpFrames(tester);
+    await pumpTrade(tester, api);
 
     await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
-    expect(find.text('Dough (55M)'), findsOneWidget);
+    expect(find.text('Dough'), findsOneWidget);
 
-    // Remove the chip via its delete icon.
-    await tester.tap(find.descendant(
-      of: find.byType(InputChip),
-      matching: find.byIcon(Icons.close),
-    ));
+    // Remove the tile via its close badge.
+    await tester.tap(find.byIcon(Icons.close));
     await tester.pump();
-    expect(find.text('Dough (55M)'), findsNothing);
+    expect(find.text('Dough'), findsNothing);
 
     await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
     await tester.tap(find.text('Clear'));
     await tester.pump();
-    expect(find.text('Dough (55M)'), findsNothing);
+    expect(find.text('Dough'), findsNothing);
     expect(find.text('Add items to both sides to compare values'), findsOneWidget);
   });
 
@@ -148,8 +157,7 @@ void main() {
         headers: {'content-type': 'application/json'},
       );
     }));
-    await tester.pumpWidget(MaterialApp(home: TradeScreen(stockApi: api)));
-    await pumpFrames(tester);
+    await pumpTrade(tester, api);
 
     expect(find.text('Trade calculator unavailable'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);

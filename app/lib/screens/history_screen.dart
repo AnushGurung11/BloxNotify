@@ -1,11 +1,36 @@
 import 'package:flutter/material.dart';
 
-import '../models/fruit.dart';
+import '../models/history.dart';
 import '../services/stock_api.dart';
 import '../utils/fruit_images.dart';
-import 'stock_screen.dart' show formatStockTimestamp;
 
-/// Shows the past stock snapshots recorded by the backend.
+const _weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const _months = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
+
+/// Formats a moment as `Tue, Aug 18, 2026` (local time), like the reference
+/// bloxvalues history page.
+String formatHistoryDay(DateTime dt) {
+  final local = dt.toLocal();
+  return '${_weekdays[local.weekday - 1]}, '
+      '${_months[local.month - 1]} ${local.day}, ${local.year}';
+}
+
+/// Formats a moment as `5:00 PM` (12-hour clock, local time).
+String formatHistoryTime(DateTime dt) {
+  final local = dt.toLocal();
+  final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+  final ampm = local.hour < 12 ? 'AM' : 'PM';
+  final mm = local.minute.toString().padLeft(2, '0');
+  return '$hour:$mm $ampm';
+}
+
+/// Shows the past 30 days of stock rotations (Normal + Mirage dealer
+/// restocks) in the style of the bloxvalues history page: a "most frequent
+/// fruits" leaderboard, then day-grouped restocks with dealer badges and
+/// fruit chips.
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key, required this.stockApi});
 
@@ -16,196 +41,372 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  late Future<StockSnapshot> _future;
+  late Future<StockHistory?> _future;
 
   @override
   void initState() {
     super.initState();
-    _future = widget.stockApi.fetchCurrentStock();
+    _future = widget.stockApi.fetchHistory();
   }
 
-  void _reload() {
-    setState(() => _future = widget.stockApi.fetchCurrentStock());
+  Future<void> _reload() async {
+    setState(() => _future = widget.stockApi.fetchHistory());
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Stock History')),
-      body: FutureBuilder<StockSnapshot>(
+      body: FutureBuilder<StockHistory?>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
             return const Center(child: CircularProgressIndicator());
           }
           if (snapshot.hasError) {
-            return Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.cloud_off,
-                        size: 56, color: Theme.of(context).colorScheme.error),
-                    const SizedBox(height: 16),
-                    const Text('Could not load the history'),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                        onPressed: _reload, child: const Text('Retry')),
-                  ],
-                ),
-              ),
-            );
+            return _ErrorView(onRetry: _reload);
           }
-          final stock = snapshot.data!;
-          if (stock.history.isEmpty) {
+          final history = snapshot.data;
+          if (history == null || history.events.isEmpty) {
             return const _EmptyHistoryView();
           }
-          return _HistoryList(entries: stock.history);
+          return _HistoryView(history: history, onRefresh: _reload);
         },
       ),
     );
   }
 }
 
-class _HistoryList extends StatelessWidget {
-  const _HistoryList({required this.entries});
+class _HistoryView extends StatelessWidget {
+  const _HistoryView({required this.history, required this.onRefresh});
 
-  final List<StockHistoryEntry> entries;
+  final StockHistory history;
+  final Future<void> Function() onRefresh;
+
+  /// Fruits ranked by how often they appeared, then by most recent.
+  List<MapEntry<String, (int count, DateTime lastSeen)>> get _rankedFruits {
+    final counts = <String, int>{};
+    final lastSeen = <String, DateTime>{};
+    for (final event in history.events) {
+      for (final item in event.items) {
+        counts[item.name] = (counts[item.name] ?? 0) + 1;
+        final previous = lastSeen[item.name];
+        if (previous == null || event.time.isAfter(previous)) {
+          lastSeen[item.name] = event.time;
+        }
+      }
+    }
+    final ranked = counts.entries.map((e) {
+      return MapEntry(e.key, (e.value, lastSeen[e.key]!));
+    }).toList()
+      ..sort((a, b) {
+        final byCount = b.value.$1.compareTo(a.value.$1);
+        return byCount != 0
+            ? byCount
+            : b.value.$2.compareTo(a.value.$2);
+      });
+    return ranked.take(10).toList();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final events = history.events;
+    final latest = events.first.time;
+    final updated = history.updatedAt ?? latest;
+    final ranked = _rankedFruits;
+
+    // Group events by their local calendar day, keeping newest first.
+    final groups = <String, List<StockHistoryEvent>>{};
+    for (final event in events) {
+      final local = event.time.toLocal();
+      final key = '${local.year}-${local.month}-${local.day}';
+      groups.putIfAbsent(key, () => []).add(event);
+    }
+
     return RefreshIndicator(
-      onRefresh: () async {},
+      onRefresh: onRefresh,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: [
           Text(
-            'Previous stock snapshots, newest first.',
-            style: Theme.of(context).textTheme.bodySmall,
+            'Updated ${formatHistoryDay(updated)} · '
+            '${history.source == 'bloxvalues' ? 'bloxvalues.net' : 'local'}',
+            style: theme.textTheme.bodySmall,
           ),
-          const SizedBox(height: 12),
-          for (final entry in entries) _HistoryTile(entry: entry),
+          const SizedBox(height: 16),
+          Text('Most Frequent Fruits (Last 30 Days)',
+              style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final entry in ranked)
+            _LeaderboardRow(rank: ranked.indexOf(entry) + 1, fruit: entry),
+          const SizedBox(height: 16),
+          Text('Recent Restocks', style: theme.textTheme.titleMedium),
+          const SizedBox(height: 8),
+          for (final group in groups.entries) ...[
+            Padding(
+              padding: const EdgeInsets.only(top: 12, bottom: 6),
+              child: Text(
+                formatHistoryDay(group.value.first.time).toUpperCase(),
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+            for (final event in group.value) _EventCard(event: event),
+          ],
+          const SizedBox(height: 16),
+          Text(
+            'Showing the ${events.length} most recent restocks. '
+            'Older entries roll off after 30 days.',
+            style: theme.textTheme.bodySmall,
+          ),
         ],
       ),
     );
   }
 }
 
-class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.entry});
+class _LeaderboardRow extends StatelessWidget {
+  const _LeaderboardRow({required this.rank, required this.fruit});
 
-  final StockHistoryEntry entry;
+  final int rank;
+  final MapEntry<String, (int, DateTime)> fruit;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final when = entry.updatedAt == null
-        ? 'Unknown time'
-        : formatStockTimestamp(entry.updatedAt!);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final name = fruit.key;
+    final (count, lastSeen) = fruit.value;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 24,
+            child: Text('#$rank', style: theme.textTheme.labelMedium),
+          ),
+          _FruitImage(name: name, size: 40),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.history, size: 16, color: theme.colorScheme.primary),
-                const SizedBox(width: 6),
-                Text(when, style: theme.textTheme.labelMedium),
+                Text(name,
+                    style: theme.textTheme.titleSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
+                Text(
+                  'Last seen ${formatHistoryDay(lastSeen)}',
+                  style: theme.textTheme.labelSmall,
+                ),
               ],
             ),
-            if (entry.fruits.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final fruit in entry.fruits) _FruitThumb(name: fruit),
-                ],
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.green.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: Text(
+              '$count×',
+              style: theme.textTheme.labelSmall
+                  ?.copyWith(color: Colors.green.shade700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EventCard extends StatelessWidget {
+  const _EventCard({required this.event});
+
+  final StockHistoryEvent event;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _DealerBadge(isMirage: event.isMirage),
+              const Spacer(),
+              Text(
+                formatHistoryTime(event.time),
+                style: theme.textTheme.labelMedium,
               ),
             ],
-            if (entry.mirageFruits.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.auto_awesome,
-                      size: 14, color: theme.colorScheme.tertiary),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final fruit in entry.mirageFruits)
-                          _FruitThumb(name: fruit, mirage: true),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final item in event.items) _FruitChip(item: item),
             ],
-            if (entry.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text('(empty snapshot)',
-                    style: theme.textTheme.bodySmall),
-              ),
-          ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DealerBadge extends StatelessWidget {
+  const _DealerBadge({required this.isMirage});
+
+  final bool isMirage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color =
+        isMirage ? const Color(0xFFE879F9) : const Color(0xFF93C5FD);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Text(
+        isMirage ? 'MIRAGE DEALER' : 'NORMAL DEALER',
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: color,
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
         ),
       ),
     );
   }
 }
 
-/// Fruit thumbnail with the FruityBlox image and a letter fallback.
-class _FruitThumb extends StatelessWidget {
-  const _FruitThumb({required this.name, this.mirage = false});
+class _FruitChip extends StatelessWidget {
+  const _FruitChip({required this.item});
 
-  final String name;
-  final bool mirage;
+  final StockHistoryItem item;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Tooltip(
-      message: name,
+    final priceText = formatBeli(item.price);
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _FruitImage(
+            name: item.name,
+            url: item.imageUrl,
+            size: 26,
+            radius: 4,
+          ),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 96),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  item.name,
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (priceText.isNotEmpty)
+                  Text(
+                    priceText,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: Colors.green.shade600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Round fruit thumbnail: prefers the item's own URL, falls back to
+/// FruityBlox, then a letter avatar.
+class _FruitImage extends StatelessWidget {
+  const _FruitImage({required this.name, this.url, required this.size, this.radius = 8});
+
+  final String name;
+  final String? url;
+  final double size;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final imageUrl = url ?? fruitImageUrl(name);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
       child: SizedBox(
-        width: 48,
+        width: size,
+        height: size,
+        child: Image.network(
+          imageUrl,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => ColoredBox(
+            color: theme.colorScheme.surfaceContainerHighest,
+            child: Center(
+              child: Text(
+                fruitInitial(name),
+                style: theme.textTheme.titleSmall,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: SizedBox(
-                width: 48,
-                height: 48,
-                child: Image.network(
-                  fruitImageUrl(name),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => ColoredBox(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: Center(
-                      child: Text(
-                        fruitInitial(name),
-                        style: theme.textTheme.titleMedium,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              name,
-              style: theme.textTheme.labelSmall,
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
+            Icon(Icons.cloud_off,
+                size: 56, color: Theme.of(context).colorScheme.error),
+            const SizedBox(height: 16),
+            const Text('Could not load the history'),
+            const SizedBox(height: 16),
+            FilledButton(onPressed: onRetry, child: const Text('Retry')),
           ],
         ),
       ),
@@ -229,8 +430,8 @@ class _EmptyHistoryView extends StatelessWidget {
             Text('No history yet'),
             SizedBox(height: 8),
             Text(
-              'Past stock snapshots will appear here after the next '
-              'rotation.',
+              'Stock rotation history will appear here once it has been '
+              'recorded.',
               textAlign: TextAlign.center,
             ),
           ],

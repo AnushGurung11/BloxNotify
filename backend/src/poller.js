@@ -6,7 +6,27 @@ const stockStore = require('./stockStore');
 const { notifyStockChange } = require('./notifier');
 
 const DEFAULT_INTERVAL_MS = 90 * 1000; // every 90 seconds
-const MAX_HISTORY = 50; // previous stock snapshots kept in the state file
+const MAX_HISTORY = 750; // hard cap on snapshots kept in the state file
+const HISTORY_WINDOW_DAYS = 30; // snapshots older than this are pruned
+
+/**
+ * Keeps only snapshots from the last `HISTORY_WINDOW_DAYS` days, newest
+ * first, hard-capped at `MAX_HISTORY` entries. Entries without a parseable
+ * `updatedAt` are dropped (legacy records predate timestamps).
+ *
+ * @param {Array} history stored snapshots, newest first
+ * @param {Date} [refTime] reference time (tests)
+ * @returns {Array} pruned snapshots
+ */
+function pruneHistory(history, refTime = new Date()) {
+  const cutoff =
+    refTime.getTime() - HISTORY_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recent = (history || []).filter((entry) => {
+    const t = Date.parse(entry && entry.updatedAt);
+    return Number.isFinite(t) && t >= cutoff;
+  });
+  return recent.slice(0, MAX_HISTORY);
+}
 
 /**
  * Converts a poll interval in milliseconds to a node-cron expression with
@@ -74,9 +94,10 @@ async function checkStockOnce(deps) {
         updatedAt: previous.normal.updatedAt || previous.mirage.updatedAt,
       }
     : null;
-  const history = [historyEntry, ...(previous.history || [])]
-    .filter(Boolean)
-    .slice(0, MAX_HISTORY);
+  const history = pruneHistory(
+    [historyEntry, ...(previous.history || [])],
+    deps.now || new Date(),
+  );
   const record = stockStore.writeStock(
     { normal: { fruits: normalFruits }, mirage: { fruits: mirageFruits }, history },
     deps.stockFile,
@@ -124,4 +145,12 @@ function startPolling(deps) {
   return task;
 }
 
-module.exports = { startPolling, checkStockOnce, intervalToCron, DEFAULT_INTERVAL_MS, MAX_HISTORY };
+module.exports = {
+  startPolling,
+  checkStockOnce,
+  intervalToCron,
+  pruneHistory,
+  DEFAULT_INTERVAL_MS,
+  MAX_HISTORY,
+  HISTORY_WINDOW_DAYS,
+};

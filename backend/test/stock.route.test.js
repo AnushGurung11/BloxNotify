@@ -94,6 +94,123 @@ describe('GET /stock', () => {
   });
 });
 
+describe('GET /stock/history', () => {
+  const remoteEvents = [
+    {
+      type: 'Mirage',
+      timestamp: 1787122802,
+      time: '2026-08-19T07:00:02.000Z',
+      items: [{ name: 'Rocket', imageUrl: 'https://cdn/rocket.webp', price: 5000 }],
+    },
+    {
+      type: 'Normal',
+      timestamp: 1787119202,
+      time: '2026-08-19T06:00:02.000Z',
+      items: [{ name: 'Dough', price: 3500000 }],
+    },
+  ];
+
+  test('serves bloxvalues events when the remote client is healthy', async () => {
+    app = createApp({
+      stockFile,
+      historyClient: {
+        getHistory: jest.fn().mockResolvedValue({
+          fetchedAt: Date.now(),
+          updated: '2026-08-19 07:00:02',
+          events: remoteEvents,
+        }),
+      },
+    });
+
+    const res = await request(app).get('/stock/history');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      ready: true,
+      source: 'bloxvalues',
+      updatedAt: 1787122802000,
+      events: remoteEvents,
+    });
+  });
+
+  test('falls back to local snapshots when the remote client fails', async () => {
+    const { writeStock } = require('../src/stockStore');
+    writeStock(
+      {
+        normal: { fruits: ['Spring'] },
+        mirage: { fruits: ['Dough'] },
+        history: [
+          {
+            fruits: ['Ice', 'Venom'],
+            mirageFruits: ['Gas'],
+            updatedAt: '2026-08-18T12:30:00.000Z',
+          },
+          {
+            fruits: [],
+            mirageFruits: [],
+            updatedAt: '2026-08-18T08:00:00.000Z',
+          },
+        ],
+      },
+      stockFile
+    );
+    app = createApp({
+      stockFile,
+      historyClient: {
+        getHistory: jest.fn().mockRejectedValue(new Error('network down')),
+      },
+    });
+
+    const res = await request(app).get('/stock/history');
+    expect(res.status).toBe(200);
+    expect(res.body.ready).toBe(true);
+    expect(res.body.source).toBe('local');
+    expect(res.body.updatedAt).toBe(Date.parse('2026-08-18T12:30:00.000Z'));
+    expect(res.body.events).toEqual([
+      {
+        type: 'Normal',
+        timestamp: Date.parse('2026-08-18T12:30:00.000Z') / 1000,
+        time: '2026-08-18T12:30:00.000Z',
+        items: [{ name: 'Ice' }, { name: 'Venom' }],
+      },
+      {
+        type: 'Mirage',
+        timestamp: Date.parse('2026-08-18T12:30:00.000Z') / 1000,
+        time: '2026-08-18T12:30:00.000Z',
+        items: [{ name: 'Gas' }],
+      },
+    ]);
+  });
+
+  test('serves local snapshots when no history client is wired', async () => {
+    const { writeStock } = require('../src/stockStore');
+    writeStock(
+      { normal: { fruits: ['Spring'] }, history: [{ fruits: ['Ice'], updatedAt: '2026-08-18T08:00:00.000Z' }] },
+      stockFile
+    );
+    app = createApp({ stockFile });
+
+    const res = await request(app).get('/stock/history');
+    expect(res.status).toBe(200);
+    expect(res.body.ready).toBe(true);
+    expect(res.body.source).toBe('local');
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.events[0].items).toEqual([{ name: 'Ice' }]);
+  });
+
+  test('returns ready=false when nothing is available', async () => {
+    app = createApp({
+      stockFile,
+      historyClient: {
+        getHistory: jest.fn().mockRejectedValue(new Error('network down')),
+      },
+    });
+
+    const res = await request(app).get('/stock/history');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ready: false, source: 'local', updatedAt: null, events: [] });
+  });
+});
+
 describe('GET /health', () => {
   test('returns ok for the keep-alive pinger', async () => {
     app = createApp({ stockFile });
