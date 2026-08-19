@@ -5,8 +5,8 @@ import '../services/stock_api.dart';
 
 /// Trade calculator: pick the items you give and receive; the win/loss and
 /// the value difference are shown in real time using live game.guide values.
-/// Items are picked from an image grid and the selected items stay on
-/// screen as image tiles too.
+/// Items are picked from a compact list (small image + name + value per
+/// row) and the selected items stay on screen as image tiles too.
 class TradeScreen extends StatefulWidget {
   const TradeScreen({super.key, required this.stockApi});
 
@@ -270,13 +270,7 @@ class _SideCard extends StatelessWidget {
             SizedBox(
               height: 210,
               key: pickerKey,
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 110,
-                  childAspectRatio: 0.9,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                ),
+              child: ListView.builder(
                 itemCount: items.length,
                 itemBuilder: (context, index) {
                   final item = items[index];
@@ -320,7 +314,8 @@ class _SideCard extends StatelessWidget {
   }
 }
 
-/// A pickable item tile in the picker grid; tap to add it to the side.
+/// A pickable item row in the picker list: a small image with the name and
+/// value beside it; tap to add it to the side.
 class _PickerTile extends StatelessWidget {
   const _PickerTile({
     required this.item,
@@ -338,72 +333,77 @@ class _PickerTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
-      child: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: item.imageUrl != null
-                        ? Image.network(
-                            item.imageUrl!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, _, _) => ColoredBox(
-                              color: theme.colorScheme.surfaceContainerHighest,
-                              child: Center(
-                                child: Text(
-                                  item.name.isNotEmpty
-                                      ? item.name[0].toUpperCase()
-                                      : '?',
-                                  style: theme.textTheme.titleMedium,
-                                ),
-                              ),
-                            ),
-                          )
-                        : ColoredBox(
-                            color: theme.colorScheme.surfaceContainerHighest,
-                            child: Center(
-                              child: Text(
-                                item.name.isNotEmpty
-                                    ? item.name[0].toUpperCase()
-                                    : '?',
-                                style: theme.textTheme.titleMedium,
-                              ),
-                            ),
-                          ),
-                  ),
-                ),
-                if (selected)
-                  Positioned(
-                    top: 2,
-                    right: 2,
-                    child: Container(
-                      padding: const EdgeInsets.all(2),
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade600,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.check, size: 12, color: Colors.white),
-                    ),
-                  ),
-              ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: item.imageUrl != null
+                    ? Image.network(
+                        item.imageUrl!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => _LetterBox(item: item),
+                      )
+                    : _LetterBox(item: item),
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            item.name,
-            style: theme.textTheme.labelSmall,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            formatValue(item.normalValue),
-            style: theme.textTheme.labelSmall
-                ?.copyWith(color: theme.colorScheme.primary),
-          ),
-        ],
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                item.name,
+                style: theme.textTheme.bodyMedium,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              formatValue(item.normalValue),
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.primary),
+            ),
+            const SizedBox(width: 8),
+            if (selected)
+              Container(
+                padding: const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade600,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, size: 14, color: Colors.white),
+              )
+            else
+              Icon(
+                Icons.add_circle_outline,
+                size: 20,
+                color: theme.colorScheme.outline,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LetterBox extends StatelessWidget {
+  const _LetterBox({required this.item});
+
+  final ValueItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ColoredBox(
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Text(
+          item.name.isNotEmpty ? item.name[0].toUpperCase() : '?',
+          style: theme.textTheme.titleSmall,
+        ),
       ),
     );
   }
