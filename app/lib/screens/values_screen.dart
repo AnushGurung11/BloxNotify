@@ -4,8 +4,8 @@ import '../models/value.dart';
 import '../services/stock_api.dart';
 
 /// Shows the live fruit/item values from game.guide: in-game and permanent
-/// values, demand, trend and rarity, in a grid with search, category and
-/// rarity filters.
+/// values, demand, trend and rarity, in a grid with search and a single
+/// tier filter (rarity for fruits, "Gamepass"/"Limited" for other items).
 class ValuesScreen extends StatefulWidget {
   const ValuesScreen({super.key, required this.stockApi});
 
@@ -18,8 +18,7 @@ class ValuesScreen extends StatefulWidget {
 class _ValuesScreenState extends State<ValuesScreen> {
   late Future<List<ValueItem>?> _future;
   String _query = '';
-  String _category = 'All';
-  String _rarity = 'All';
+  String _tier = 'All';
 
   @override
   void initState() {
@@ -51,11 +50,13 @@ class _ValuesScreenState extends State<ValuesScreen> {
           return _ValuesView(
             items: items,
             query: _query,
-            category: _category,
-            rarity: _rarity,
+            tier: _tier,
             onQueryChanged: (value) => setState(() => _query = value),
-            onCategoryChanged: (value) => setState(() => _category = value),
-            onRarityChanged: (value) => setState(() => _rarity = value),
+            onTierChanged: (value) => setState(() => _tier = value),
+            onClearFilters: () => setState(() {
+              _query = '';
+              _tier = 'All';
+            }),
           );
         },
       ),
@@ -63,42 +64,51 @@ class _ValuesScreenState extends State<ValuesScreen> {
   }
 }
 
-const _rarityFilters = ['All', 'Common', 'Uncommon', 'Rare', 'Legendary', 'Mythical'];
+/// Canonical display order for the tier chips.
+const _tierOrder = [
+  'Common', 'Uncommon', 'Rare', 'Legendary', 'Mythical',
+  'Gamepass', 'Limited',
+];
 
 class _ValuesView extends StatelessWidget {
   const _ValuesView({
     required this.items,
     required this.query,
-    required this.category,
-    required this.rarity,
+    required this.tier,
     required this.onQueryChanged,
-    required this.onCategoryChanged,
-    required this.onRarityChanged,
+    required this.onTierChanged,
+    required this.onClearFilters,
   });
 
   final List<ValueItem> items;
   final String query;
-  final String category;
-  final String rarity;
+  final String tier;
   final ValueChanged<String> onQueryChanged;
-  final ValueChanged<String> onCategoryChanged;
-  final ValueChanged<String> onRarityChanged;
+  final ValueChanged<String> onTierChanged;
+  final VoidCallback onClearFilters;
 
   @override
   Widget build(BuildContext context) {
-    final categories = <String>['All'];
+    // One filter row for everything: fruits keep their rarity tiers, while
+    // gamepasses and limiteds get their own "Gamepass"/"Limited" tiers.
+    final counts = <String, int>{};
     for (final item in items) {
-      final category = item.category;
-      if (category != null && !categories.contains(category)) {
-        categories.add(category);
+      final rarity = item.rarity;
+      if (rarity != null && rarity.isNotEmpty) {
+        counts[rarity] = (counts[rarity] ?? 0) + 1;
       }
     }
+    final tiers = <String>['All', ..._tierOrder.where(counts.containsKey)];
+    for (final rarity in counts.keys) {
+      if (!tiers.contains(rarity)) tiers.add(rarity);
+    }
+
     final q = query.trim().toLowerCase();
+    final hasFilter = tier != 'All' || q.isNotEmpty;
     final filtered = items.where((item) {
-      final matchesCategory = category == 'All' || item.category == category;
-      final matchesRarity = rarity == 'All' || item.rarity == rarity;
+      final matchesTier = tier == 'All' || item.rarity == tier;
       final matchesQuery = q.isEmpty || item.name.toLowerCase().contains(q);
-      return matchesCategory && matchesRarity && matchesQuery;
+      return matchesTier && matchesQuery;
     }).toList();
 
     return Column(
@@ -122,34 +132,15 @@ class _ValuesView extends StatelessWidget {
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
-                for (final c in categories)
+                for (final t in tiers)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(c),
-                      selected: category == c,
-                      onSelected: (_) => onCategoryChanged(c),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-          child: SizedBox(
-            height: 32,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                for (final r in _rarityFilters)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(r),
-                      selected: rarity == r,
-                      onSelected: (_) => onRarityChanged(r),
+                      label: Text(
+                        t == 'All' ? t : '$t (${counts[t]})',
+                      ),
+                      selected: tier == t,
+                      onSelected: (_) => onTierChanged(t),
                       visualDensity: VisualDensity.compact,
                     ),
                   ),
@@ -159,7 +150,10 @@ class _ValuesView extends StatelessWidget {
         ),
         Expanded(
           child: filtered.isEmpty
-              ? const Center(child: Text('No items match your search'))
+              ? _EmptyFilterView(
+                  hasFilter: hasFilter,
+                  onClear: onClearFilters,
+                )
               : GridView.builder(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                   gridDelegate:
@@ -330,6 +324,48 @@ class _Placeholder extends StatelessWidget {
         child: name.isEmpty
             ? Icon(icon, size: 24)
             : Text(name[0].toUpperCase(), style: theme.textTheme.titleMedium),
+      ),
+    );
+  }
+}
+
+class _EmptyFilterView extends StatelessWidget {
+  const _EmptyFilterView({required this.hasFilter, required this.onClear});
+
+  final bool hasFilter;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.search_off,
+                size: 56, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            const Text('No items match your search'),
+            const SizedBox(height: 8),
+            Text(
+              hasFilter
+                  ? 'Try a different search or tier.'
+                  : 'Items will show up here.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            if (hasFilter) ...[
+              const SizedBox(height: 16),
+              FilledButton.tonal(
+                onPressed: onClear,
+                child: const Text('Clear filters'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

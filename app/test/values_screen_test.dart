@@ -90,8 +90,9 @@ void main() {
     expect(find.text('2x Money'), findsOneWidget);
     expect(find.text('5M'), findsOneWidget);
     expect(find.text('Perm 450'), findsOneWidget);
-    // Rarity appears both as a filter chip and on the Dragon tile.
-    expect(find.text('Mythical'), findsNWidgets(2));
+    // The rarity badge appears on the Dragon tile (the chip label now
+    // includes the count, e.g. "Mythical (1)").
+    expect(find.text('Mythical'), findsOneWidget);
     expect(find.byType(GridView), findsWidgets);
     expect(find.byIcon(Icons.trending_down), findsOneWidget); // Falling
   });
@@ -108,11 +109,31 @@ void main() {
     expect(find.text('2x Money'), findsNothing);
   });
 
-  testWidgets('filters items by category chip', (tester) async {
+  testWidgets('filters items by tier chip with counts', (tester) async {
     final api = _apiWith(mockValues(_values));
     await pumpValues(tester, api);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Gamepasses'));
+    // Chips show the tier plus how many items it covers.
+    expect(find.text('Mythical (1)'), findsOneWidget);
+    expect(find.text('Common (1)'), findsOneWidget);
+    expect(find.text('Gamepass (1)'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Mythical (1)'));
+    await tester.pump();
+
+    expect(find.text('Dragon'), findsOneWidget);
+    expect(find.text('Rocket'), findsNothing);
+    expect(find.text('2x Money'), findsNothing);
+  });
+
+  testWidgets('gamepasses have their own tier instead of a category chip',
+      (tester) async {
+    final api = _apiWith(mockValues(_values));
+    await pumpValues(tester, api);
+
+    expect(find.text('Gamepasses'), findsNothing); // no category row anymore
+
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Gamepass (1)'));
     await tester.pump();
 
     expect(find.text('2x Money'), findsOneWidget);
@@ -120,16 +141,24 @@ void main() {
     expect(find.text('Rocket'), findsNothing);
   });
 
-  testWidgets('filters items by rarity chip', (tester) async {
+  testWidgets('shows a clear-filters action when nothing matches',
+      (tester) async {
     final api = _apiWith(mockValues(_values));
     await pumpValues(tester, api);
 
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Mythical'));
+    await tester.enterText(find.byType(TextField), 'zzz');
+    await tester.pump();
+
+    expect(find.text('No items match your search'), findsOneWidget);
+    expect(find.text('Clear filters'), findsOneWidget);
+
+    await tester.tap(find.text('Clear filters'));
     await tester.pump();
 
     expect(find.text('Dragon'), findsOneWidget);
-    expect(find.text('Rocket'), findsNothing);
-    expect(find.text('2x Money'), findsNothing);
+    expect(find.text('Rocket'), findsOneWidget);
+    expect(find.text('2x Money'), findsOneWidget);
+    expect(find.text('No items match your search'), findsNothing);
   });
 
   testWidgets('shows a retry state when values are unavailable',

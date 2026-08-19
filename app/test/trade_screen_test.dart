@@ -80,17 +80,16 @@ const _values = [
   },
 ];
 
-Future<void> _selectAndAdd(
+/// Taps the item tile inside the picker grid of one side.
+Future<void> _pick(
   WidgetTester tester, {
   required bool firstSide,
-  required String itemLabel,
+  required String itemName,
 }) async {
-  final dropdowns = find.byType(DropdownButtonFormField<ValueItem>);
-  await tester.tap(dropdowns.at(firstSide ? 0 : 1));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(itemLabel).last);
-  await tester.pumpAndSettle();
-  await tester.tap(find.byIcon(Icons.add).at(firstSide ? 0 : 1));
+  await tester.tap(find.descendant(
+    of: find.byKey(Key(firstSide ? 'give-picker' : 'receive-picker')),
+    matching: find.text(itemName),
+  ));
   await tester.pump();
 }
 
@@ -100,29 +99,32 @@ void main() {
     final api = _apiWith(mockValues(_values));
     await pumpTrade(tester, api);
 
-    await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
-    await _selectAndAdd(tester, firstSide: false, itemLabel: 'Venom (10M)');
+    await _pick(tester, firstSide: true, itemName: 'Dough');
+    await _pick(tester, firstSide: false, itemName: 'Venom');
 
     expect(find.text('You give'), findsOneWidget);
     expect(find.text('You receive'), findsOneWidget);
-    // Selected items appear as image tiles (name + value in the tile).
-    expect(find.text('Dough'), findsOneWidget);
-    expect(find.text('Venom'), findsOneWidget);
-    // Each total shows in the side header, the comparison row and the tile.
-    expect(find.text('55M'), findsNWidgets(3)); // given total
-    expect(find.text('10M'), findsNWidgets(3)); // received total
+    // Each item appears in both picker grids plus the added-items grid.
+    expect(find.text('Dough'), findsNWidgets(3));
+    expect(find.text('Venom'), findsNWidgets(3));
+    // Each total shows in the side header, the comparison row, both picker
+    // tiles and the added tile.
+    expect(find.text('55M'), findsNWidgets(5)); // given total
+    expect(find.text('10M'), findsNWidgets(5)); // received total
     expect(find.text('Loss'), findsOneWidget);
     expect(find.text('You lose 45M in value'), findsOneWidget);
     // No progress bar — just the win/loss verdict and amount.
     expect(find.byType(LinearProgressIndicator), findsNothing);
+    // The picker shows images, not a dropdown.
+    expect(find.byType(DropdownButtonFormField<ValueItem>), findsNothing);
   });
 
   testWidgets('flips to a win when receiving more value', (tester) async {
     final api = _apiWith(mockValues(_values));
     await pumpTrade(tester, api);
 
-    await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
-    await _selectAndAdd(tester, firstSide: false, itemLabel: 'Dragon (120M)');
+    await _pick(tester, firstSide: true, itemName: 'Dough');
+    await _pick(tester, firstSide: false, itemName: 'Dragon');
 
     expect(find.text('Win'), findsOneWidget);
     expect(find.text('You gain 65M in value'), findsOneWidget);
@@ -133,18 +135,18 @@ void main() {
     final api = _apiWith(mockValues(_values));
     await pumpTrade(tester, api);
 
-    await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
-    expect(find.text('Dough'), findsOneWidget);
+    await _pick(tester, firstSide: true, itemName: 'Dough');
+    expect(find.text('Dough'), findsNWidgets(3)); // both pickers + added tile
 
     // Remove the tile via its close badge.
     await tester.tap(find.byIcon(Icons.close));
     await tester.pump();
-    expect(find.text('Dough'), findsNothing);
+    expect(find.text('Dough'), findsNWidgets(2)); // pickers only
 
-    await _selectAndAdd(tester, firstSide: true, itemLabel: 'Dough (55M)');
+    await _pick(tester, firstSide: true, itemName: 'Dough');
     await tester.tap(find.text('Clear'));
     await tester.pump();
-    expect(find.text('Dough'), findsNothing);
+    expect(find.text('Dough'), findsNWidgets(2)); // pickers only
     expect(find.text('Add items to both sides to compare values'), findsOneWidget);
   });
 

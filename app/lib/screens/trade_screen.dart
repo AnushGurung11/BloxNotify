@@ -5,6 +5,8 @@ import '../services/stock_api.dart';
 
 /// Trade calculator: pick the items you give and receive; the win/loss and
 /// the value difference are shown in real time using live game.guide values.
+/// Items are picked from an image grid and the selected items stay on
+/// screen as image tiles too.
 class TradeScreen extends StatefulWidget {
   const TradeScreen({super.key, required this.stockApi});
 
@@ -19,8 +21,6 @@ class _TradeScreenState extends State<TradeScreen> {
 
   final List<ValueItem> _given = [];
   final List<ValueItem> _received = [];
-  ValueItem? _givenSelection;
-  ValueItem? _receivedSelection;
 
   @override
   void initState() {
@@ -36,20 +36,11 @@ class _TradeScreenState extends State<TradeScreen> {
       _future = _fetchSafely();
       _given.clear();
       _received.clear();
-      _givenSelection = null;
-      _receivedSelection = null;
     });
   }
 
   void _addTo(List<ValueItem> side, ValueItem item) {
-    setState(() {
-      side.add(item);
-      if (identical(side, _given)) {
-        _givenSelection = null;
-      } else {
-        _receivedSelection = null;
-      }
-    });
+    setState(() => side.add(item));
   }
 
   void _removeFrom(List<ValueItem> side, ValueItem item) {
@@ -79,20 +70,8 @@ class _TradeScreenState extends State<TradeScreen> {
             items: tradable,
             given: _given,
             received: _received,
-            givenSelection: _givenSelection,
-            receivedSelection: _receivedSelection,
-            onGivenSelectionChanged: (item) =>
-                setState(() => _givenSelection = item),
-            onReceivedSelectionChanged: (item) =>
-                setState(() => _receivedSelection = item),
-            onAddGiven: () {
-              final item = _givenSelection;
-              if (item != null) _addTo(_given, item);
-            },
-            onAddReceived: () {
-              final item = _receivedSelection;
-              if (item != null) _addTo(_received, item);
-            },
+            onPickGiven: (item) => _addTo(_given, item),
+            onPickReceived: (item) => _addTo(_received, item),
             onRemoveGiven: (item) => _removeFrom(_given, item),
             onRemoveReceived: (item) => _removeFrom(_received, item),
             onClear: () => setState(() {
@@ -111,12 +90,8 @@ class _TradeView extends StatelessWidget {
     required this.items,
     required this.given,
     required this.received,
-    required this.givenSelection,
-    required this.receivedSelection,
-    required this.onGivenSelectionChanged,
-    required this.onReceivedSelectionChanged,
-    required this.onAddGiven,
-    required this.onAddReceived,
+    required this.onPickGiven,
+    required this.onPickReceived,
     required this.onRemoveGiven,
     required this.onRemoveReceived,
     required this.onClear,
@@ -125,12 +100,8 @@ class _TradeView extends StatelessWidget {
   final List<ValueItem> items;
   final List<ValueItem> given;
   final List<ValueItem> received;
-  final ValueItem? givenSelection;
-  final ValueItem? receivedSelection;
-  final ValueChanged<ValueItem?> onGivenSelectionChanged;
-  final ValueChanged<ValueItem?> onReceivedSelectionChanged;
-  final VoidCallback onAddGiven;
-  final VoidCallback onAddReceived;
+  final ValueChanged<ValueItem> onPickGiven;
+  final ValueChanged<ValueItem> onPickReceived;
   final ValueChanged<ValueItem> onRemoveGiven;
   final ValueChanged<ValueItem> onRemoveReceived;
   final VoidCallback onClear;
@@ -155,24 +126,22 @@ class _TradeView extends StatelessWidget {
         _SideCard(
           title: 'You give',
           icon: Icons.outbound,
+          pickerKey: const Key('give-picker'),
           items: items,
-          selection: givenSelection,
           total: givenTotal,
           addedItems: given,
-          onSelectionChanged: onGivenSelectionChanged,
-          onAdd: onAddGiven,
+          onPick: onPickGiven,
           onRemove: onRemoveGiven,
         ),
         const SizedBox(height: 16),
         _SideCard(
           title: 'You receive',
           icon: Icons.input,
+          pickerKey: const Key('receive-picker'),
           items: items,
-          selection: receivedSelection,
           total: receivedTotal,
           addedItems: received,
-          onSelectionChanged: onReceivedSelectionChanged,
-          onAdd: onAddReceived,
+          onPick: onPickReceived,
           onRemove: onRemoveReceived,
         ),
         const SizedBox(height: 20),
@@ -253,26 +222,25 @@ class _SideCard extends StatelessWidget {
   const _SideCard({
     required this.title,
     required this.icon,
+    required this.pickerKey,
     required this.items,
-    required this.selection,
     required this.total,
     required this.addedItems,
-    required this.onSelectionChanged,
-    required this.onAdd,
+    required this.onPick,
     required this.onRemove,
   });
 
   final String title;
   final IconData icon;
+  final Key pickerKey;
   final List<ValueItem> items;
-  final ValueItem? selection;
   final num total;
-  final ValueChanged<ValueItem?> onSelectionChanged;
-  final VoidCallback onAdd;
-  final ValueChanged<ValueItem> onRemove;
 
-  /// The chips shown below the picker (populated by the parent).
+  /// The items already added to this side (shown as tiles below the picker).
   final List<ValueItem> addedItems;
+
+  final ValueChanged<ValueItem> onPick;
+  final ValueChanged<ValueItem> onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -299,44 +267,33 @@ class _SideCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: DropdownButtonFormField<ValueItem>(
-                    initialValue: selection,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                      hintText: 'Pick an item...',
-                    ),
-                    items: [
-                      for (final item in items)
-                        DropdownMenuItem(
-                          value: item,
-                          child: Text(
-                            '${item.name} (${formatValue(item.normalValue)})',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: onSelectionChanged,
-                  ),
+            SizedBox(
+              height: 210,
+              key: pickerKey,
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 110,
+                  childAspectRatio: 0.9,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
                 ),
-                const SizedBox(width: 8),
-                IconButton.filled(
-                  onPressed: onAdd,
-                  icon: const Icon(Icons.add),
-                  tooltip: 'Add item',
-                ),
-              ],
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  return _PickerTile(
+                    item: item,
+                    selected: addedItems.contains(item),
+                    onTap: () => onPick(item),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 8),
             if (addedItems.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 4),
                 child: Text(
-                  'Nothing added yet — pick an item above.',
+                  'Nothing added yet — tap an item above.',
                   style: TextStyle(fontSize: 12),
                 ),
               )
@@ -358,6 +315,95 @@ class _SideCard extends StatelessWidget {
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A pickable item tile in the picker grid; tap to add it to the side.
+class _PickerTile extends StatelessWidget {
+  const _PickerTile({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ValueItem item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: item.imageUrl != null
+                        ? Image.network(
+                            item.imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, _, _) => ColoredBox(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              child: Center(
+                                child: Text(
+                                  item.name.isNotEmpty
+                                      ? item.name[0].toUpperCase()
+                                      : '?',
+                                  style: theme.textTheme.titleMedium,
+                                ),
+                              ),
+                            ),
+                          )
+                        : ColoredBox(
+                            color: theme.colorScheme.surfaceContainerHighest,
+                            child: Center(
+                              child: Text(
+                                item.name.isNotEmpty
+                                    ? item.name[0].toUpperCase()
+                                    : '?',
+                                style: theme.textTheme.titleMedium,
+                              ),
+                            ),
+                          ),
+                  ),
+                ),
+                if (selected)
+                  Positioned(
+                    top: 2,
+                    right: 2,
+                    child: Container(
+                      padding: const EdgeInsets.all(2),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade600,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.check, size: 12, color: Colors.white),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            item.name,
+            style: theme.textTheme.labelSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          Text(
+            formatValue(item.normalValue),
+            style: theme.textTheme.labelSmall
+                ?.copyWith(color: theme.colorScheme.primary),
+          ),
+        ],
       ),
     );
   }
