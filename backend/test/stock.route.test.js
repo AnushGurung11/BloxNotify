@@ -209,6 +209,40 @@ describe('GET /stock/history', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ready: false, source: 'local', updatedAt: null, events: [] });
   });
+
+  test('excludes events older than the 7-day window', async () => {
+    const { HISTORY_WINDOW_DAYS } = require('../src/poller');
+    const nowMs = Date.now();
+    const daysAgo = (days) => Math.floor((nowMs - days * 24 * 60 * 60 * 1000) / 1000);
+    app = createApp({
+      stockFile,
+      historyClient: {
+        getHistory: jest.fn().mockResolvedValue({
+          updated: '2026-08-19 07:00:02',
+          events: [
+            {
+              type: 'Normal',
+              timestamp: daysAgo(HISTORY_WINDOW_DAYS + 2),
+              time: new Date(nowMs - (HISTORY_WINDOW_DAYS + 2) * 24 * 60 * 60 * 1000).toISOString(),
+              items: [{ name: 'Ancient' }],
+            },
+            {
+              type: 'Mirage',
+              timestamp: daysAgo(1),
+              time: new Date(nowMs - 24 * 60 * 60 * 1000).toISOString(),
+              items: [{ name: 'Recent' }],
+            },
+          ],
+        }),
+      },
+    });
+
+    const res = await request(app).get('/stock/history');
+    expect(res.status).toBe(200);
+    expect(res.body.ready).toBe(true);
+    expect(res.body.events).toHaveLength(1);
+    expect(res.body.events[0].items).toEqual([{ name: 'Recent' }]);
+  });
 });
 
 describe('GET /health', () => {

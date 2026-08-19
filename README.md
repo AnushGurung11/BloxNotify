@@ -2,7 +2,7 @@
 
 **Real-time Blox Fruits stock-change notifications for the Normal and Mirage dealers.**
 
-Blox Notify watches the live stock on [FruityBlox](https://fruityblox.com/stock) (pulled automatically from the in-game shop — Normal dealer rotates every 4 hours, Mirage every 2 hours), detects every stock change, and pushes a notification to everyone who subscribed. An Android app shows the current stock with fruit images and countdowns, predicted next stock, a 30-day rotation history, a **trade calculator** that compares trades with fruit images and a clear win/loss verdict, and **live item values** (in-game + permanent) from game.guide.
+Blox Notify watches the live stock on [FruityBlox](https://fruityblox.com/stock) (pulled automatically from the in-game shop — Normal dealer rotates every 4 hours, Mirage every 2 hours), detects every stock change, and pushes a notification to everyone who subscribed. An Android app shows the current stock with fruit images and countdowns, predicted next stock, a 7-day rotation history, a **trade calculator** that compares trades with fruit images and a clear win/loss verdict, and **live item values** (in-game + permanent) from game.guide.
 
 > ⚠️ **Disclaimer**: Blox Notify is a fan-made utility. It is not affiliated with Gamer Robot Inc., the developers of Blox Fruits, or FruityBlox. Stock data comes from FruityBlox's live dealer feed.
 
@@ -83,7 +83,7 @@ Every **90 seconds** (configurable via `POLL_INTERVAL_MS`) `node-cron` runs one 
 | **Parse** | `src/fruitybloxClient.js` | Extracts the `normal` and `mirage` dealer stock from the page's embedded Next.js payload (with a rendered-DOM fallback), e.g. `normal: [Rocket, Spin, ...]`, `mirage: [Rocket, Gas, ...]` |
 | **Diff** | `src/stockStore.js` | Compares both dealer lists against the last-known stock persisted in `data/last-known-stock.json` |
 | **Notify** | `src/notifier.js` | For each dealer that changed, sends an FCM topic broadcast (see below) |
-| **Persist** | `src/stockStore.js` | Writes the new stock + timestamp to the state file and pushes the previous snapshot onto `history` (kept for **30 days**, newest first, hard-capped at 750) |
+| **Persist** | `src/stockStore.js` | Writes the new stock + timestamp to the state file and pushes the previous snapshot onto `history` (kept for **7 days**, newest first, hard-capped at 750) |
 
 Safety guard: if a poll parses an **empty** stock, the cycle is aborted instead of treating it as a change (protects against transient site failures).
 
@@ -106,7 +106,7 @@ Fruit icons are served by FruityBlox at deterministic slug URLs (`https://fruity
 |---|---|
 | `GET /health` | `{ "ok": true }` — liveness endpoint for the keep-alive pinger |
 | `GET /stock` | `{ "normal": { "fruits": [ { "name": "Spring", "imageUrl": "..." }, ... ], "updatedAt": "ISO-8601", "nextResetAt": "epoch-ms" }, "mirage": { ... }, "fruits": <normal alias>, "updatedAt": ..., "history": [ { "fruits": [...], "mirageFruits": [...], "updatedAt": "ISO-8601" }, ... ] }` — last known stock for both dealers enriched with image URLs, next reset times (normal: 4h, mirage: 2h, UTC-aligned), plus a preview of the 50 most recent snapshots (newest first) |
-| `GET /stock/history` | `{ "ready": true, "source": "bloxvalues" | "local", "updatedAt": "epoch-ms", "events": [ { "type": "Normal" | "Mirage", "timestamp": "unix-s", "time": "ISO-8601", "items": [ { "name": "Dough", "imageUrl": "...", "price": 3500000, "robux": 0, "url": "..." }, ... ] }, ... ] }` — the **full 30-day rotation history** as events (each a Normal or Mirage dealer restock with its fruits, prices and images), sourced from the bloxvalues.net stock-history file when available and falling back to local snapshots; `{ "ready": false }` when nothing is available |
+| `GET /stock/history` | `{ "ready": true, "source": "bloxvalues" | "local", "updatedAt": "epoch-ms", "events": [ { "type": "Normal" | "Mirage", "timestamp": "unix-s", "time": "ISO-8601", "items": [ { "name": "Dough", "imageUrl": "...", "price": 3500000, "robux": 0, "url": "..." }, ... ] }, ... ] }` — the **last 7 days of rotation history** as events (each a Normal or Mirage dealer restock with its fruits, prices and images), sourced from the bloxvalues.net stock-history file when available and falling back to local snapshots; `{ "ready": false }` when nothing is available |
 | `GET /stock/predictions` | `{ "ready": true, "nextResetAt": "epoch-ms", "predictions": [ { "name": "Dough", "confidence": 0.12, "imageUrl": "...", "rarity": "Mythical" }, ... ], "rating": { "top1Accuracy": 32.3, "top3Accuracy": 63.2, "testedRotations": 10972 } }` — predicted fruits for the next rotation: the model's top-3 plus up to two Legendary/Mythical picks surfaced from the live value list (each with image and rarity); `{ "ready": false }` before the history model is loaded |
 | `GET /values` | `{ "ready": true, "updatedAt": "epoch-ms", "items": [ { "id": 16, "name": "Dough", "normalValue": 30000000, "permanentValue": 3580000000, "demand": "Very High", "trend": "Overpaid", "category": "Fruits", "rarity": "Mythical", "fruitType": "Logia", "imageUrl": "..." }, ... ] }` — live values for all tradable items (fruits, gamepasses, limiteds) scraped from game.guide, cached for 10 minutes; `{ "ready": false }` when nothing is cached yet |
 
@@ -146,14 +146,15 @@ fruits in the predictions.
 
 ### Stock history (`src/stockHistoryClient.js`, `src/routes/stock.js`)
 
-`GET /stock/history` serves the **full 30-day rotation history** for the app's
+`GET /stock/history` serves the **last 7 days of rotation history** for the app's
 History screen. The primary source is the
 [bloxvalues.net stock history](https://bloxvalues.net/blox-fruit-stock/blox-fruit-stock-history/),
 whose public JSON file (`stock_history.json`) records every Normal and Mirage
 restock with timestamps, fruit images and Beli prices; it is fetched at boot
 and cached for 30 minutes (stale-served on failure, with a fallback to the
-backend's own poller snapshots when the remote source is unreachable). Local
-snapshots are retained for 30 days (pruned by age, hard-capped at 750) so the
+backend's own poller snapshots when the remote source is unreachable), and the
+events are sliced to the 7-day window before serving. Local
+snapshots are retained for 7 days (pruned by age, hard-capped at 750) so the
 same endpoint works even if bloxvalues is down.
 
 ### Notifications (`src/notifier.js`)
@@ -207,10 +208,10 @@ flowchart LR
 
 1. **Onboarding** (`lib/screens/onboarding_screen.dart`) — explains the app, requests notification permission, then subscribes the device to the FCM `stock_updates` topic via `firebase_messaging`. The "done" flag is persisted with `shared_preferences`, so the prompt shows **exactly once, ever** — not on every launch.
 2. **Stock screen** (`lib/screens/stock_screen.dart`) — fetches `GET {apiBase}/stock`, renders the current stock for the Normal and Mirage dealers as a **Wrap grid** (72px fruit tiles that flow onto the next row instead of scrolling sideways) with countdowns to the next rotation, and supports pull-to-refresh. A **MaterialBanner** appears when a newer APK exists; tapping *Download* opens the GitHub Release asset in the browser via `url_launcher`.
-3. **Trade calculator** (`lib/screens/trade_screen.dart`) — simulates an in-game trade: pick items (live values from `GET /values`) for the "you give" and "you receive" sides. Selected items are shown as a **grid of fruit image tiles** (tap to remove); totals are compared and a **Win/Loss verdict with the exact amount gained or lost** updates in real time.
-4. **Values screen** (`lib/screens/values_screen.dart`) — the live game.guide list in a **grid layout**: search, category and **rarity filters** (Common/Uncommon/Rare/Legendary/Mythical), in-game and permanent ("Perm") values, demand badges (Very High → Very Low), trend, rarity and images.
+3. **Trade calculator** (`lib/screens/trade_screen.dart`) — simulates an in-game trade: pick items (live values from `GET /values`) for the "you give" and "you receive" sides from **image-grid pickers** (one tap adds the item; checkmarks show what is already selected). Selected items are shown as a **grid of fruit image tiles** (tap to remove); totals are compared and a **Win/Loss verdict with the exact amount gained or lost** updates in real time.
+4. **Values screen** (`lib/screens/values_screen.dart`) — the live game.guide list in a **grid layout**: search plus a single **tier filter row** (rarity tiers for fruits — Common/Uncommon/Rare/Legendary/Mythical — and their own `Gamepass`/`Limited` tiers for other items, each chip showing its item count), in-game and permanent ("Perm") values, demand badges (Very High → Very Low), trend, rarity and images.
 5. **Predictions screen** (`lib/screens/predictions_screen.dart`) — the predicted next stock: top-3 candidates with confidence bars plus Legendary/Mythical picks surfaced from the live value list (rarity badges), the model's backtested rating and a countdown to the next rotation.
-6. **History screen** (`lib/screens/history_screen.dart`) — the **last 30 days of restocks** in the style of the bloxvalues history page: a "Most Frequent Fruits" leaderboard (count + last seen), then day-grouped restocks with **Normal/Mirage dealer badges**, 12-hour local times and fruit chips with images and Beli prices (falling back to FruityBlox slugs + letter avatars).
+6. **History screen** (`lib/screens/history_screen.dart`) — the **last 7 days of restocks** in the style of the bloxvalues history page: a "Most Frequent Fruits" leaderboard (count + last seen), then day-grouped restocks with **Normal/Mirage dealer badges**, 12-hour local times and fruit chips with images and Beli prices (falling back to FruityBlox slugs + letter avatars).
 7. **Background handling** (`lib/services/fcm_service.dart`) — a top-level background handler converts incoming FCM messages into a **big-picture notification** (first fruit image + changed list) using `flutter_local_notifications`, so a change is visible even with the app closed. A `PushService` abstraction keeps the UI testable.
 
 ### Launcher icon
@@ -355,7 +356,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 
 | Suite | Command | Coverage |
 |---|---|---|
-| Backend (Jest + Supertest) | `cd backend && npm test` | 92 tests — FruityBlox client (payload + DOM parsing, reset times), poller diff/notify logic (both dealers), **30-day history pruning + hard cap**, stock store (incl. legacy migration), `/stock` + `/health` routes, **`/stock/history` route (bloxvalues source, local fallback, empty state)**, **bloxvalues history client (parse/normalize, cache/TTL, stale serving)**, history parser (wiki tables), predictor (backtest + slots + rarities), predictions route (rarity enrichment), value client (flight-payload + card fallback parsing, cache/TTL, stale serving) + `/values` route, notifier, cron conversion |
+| Backend (Jest + Supertest) | `cd backend && npm test` | 93 tests — FruityBlox client (payload + DOM parsing, reset times), poller diff/notify logic (both dealers), **7-day history pruning + hard cap**, stock store (incl. legacy migration), `/stock` + `/health` routes, **`/stock/history` route (bloxvalues source, local fallback, 7-day window, empty state)**, **bloxvalues history client (parse/normalize, cache/TTL, stale serving)**, history parser (wiki tables), predictor (backtest + slots + rarities), predictions route (rarity enrichment), value client (flight-payload + card fallback parsing, cache/TTL, stale serving) + `/values` route, notifier, cron conversion |
 | App (Flutter) | `cd app && flutter test` | 33 tests — stock grid + countdowns, 12-hour time formatting, predictions (rarity badges, no Best Times), **trade calculator (image-tile grid, add/remove/clear, Win/Loss verdict without progress bar)**, **values screen (grid, search, category + rarity filters, Perm label)**, **history screen (day groups, dealer badges, leaderboard, prices)**, API service, FCM service, onboarding, update service + banner logic |
 | App static analysis | `cd app && flutter analyze` | zero issues |
 | E2E (emulator) | `cd app && flutter test integration_test` | full app flow on a real Android emulator (5 tabs) |
@@ -377,7 +378,7 @@ CI runs the backend and Flutter suites on every push.
 ## Limitations
 
 - **The poller needs the service to stay awake.** On Render's free plan, add a keep-alive ping (`GET /health`) so the 15-minute idle spin-down never happens — see [Keeping the poller alive](#keeping-the-poller-alive-render-free-tier).
-- The backend state file (current stock **and** local snapshots) lives inside the container and resets on redeploy. On restart the backend seeds the current stock silently (no notification spam). The History screen still shows the full 30-day window because it is served from the remote bloxvalues.net history (see [Stock history](#stock-history-srchistoryclientjs-srcroutesstockjs)); local snapshots are only a fallback. Persisting local state across redeploys requires a Render disk (paid plans).
+- The backend state file (current stock **and** local snapshots) lives inside the container and resets on redeploy. On restart the backend seeds the current stock silently (no notification spam). The History screen still shows the full 7-day window because it is served from the remote bloxvalues.net history (see [Stock history](#stock-history-srchistoryclientjs-srcroutesstockjs)); local snapshots are only a fallback. Persisting local state across redeploys requires a Render disk (paid plans).
 - **Predictions are a statistical guess** (community-recorded wiki history, not the game's RNG) — the in-app rating shows the model's real backtested accuracy.
 - **Values are best-effort** — game.guide is scraped (flight-payload parsing with a DOM fallback) and cached for 10 minutes; if game.guide changes layout or is unreachable, the app shows the last known list or a retry state.
 - The Normal dealer's stock rotates every 4 hours and the Mirage dealer every 2 hours — notifications fire within ~90s of FruityBlox reflecting the new stock, at the rotation boundary.
@@ -401,7 +402,7 @@ CI runs the backend and Flutter suites on every push.
 │   │   ├── notifier.js          # FCM topic broadcasts (per dealer)
 │   │   ├── fruitImages.js       # deterministic FruityBlox image URLs
 │   │   ├── historyClient.js     # History of Stock pages fetch
-│   │   ├── stockHistoryClient.js # bloxvalues.net 30-day stock history (JSON fetch + cache)
+│   │   ├── stockHistoryClient.js # bloxvalues.net stock history (JSON fetch + cache)
 │   │   ├── historyParser.js     # wiki tables → rotation entries
 │   │   ├── predictor.js         # slot/transition model + backtest + rarity picks
 │   │   ├── stockPredictor.js    # cached predictor service (6h refresh)
@@ -428,7 +429,7 @@ CI runs the backend and Flutter suites on every push.
 │   │   ├── screens/trade_screen.dart        # trade calculator (image grid, Win/Loss verdict)
 │   │   ├── screens/values_screen.dart       # values grid, demand/rarity, search/filters
 │   │   ├── screens/predictions_screen.dart  # predictions + rarity badges
-│   │   ├── screens/history_screen.dart      # 30-day history: leaderboard + day groups
+│   │   ├── screens/history_screen.dart      # 7-day history: leaderboard + day groups
 │   │   ├── utils/fruit_images.dart          # FruityBlox slug URL + initial fallback
 │   │   └── services/            # stock_api, fcm_service, update_service
 │   ├── android/app/

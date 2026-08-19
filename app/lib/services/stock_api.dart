@@ -108,7 +108,7 @@ class StockApi {
         .toList();
   }
 
-  /// Fetches the stock rotation history (up to 30 days) from /stock/history.
+  /// Fetches the stock rotation history (up to 7 days) from /stock/history.
   /// Returns null when the backend has no history yet.
   Future<StockHistory?> fetchHistory() async {
     final http.Response response;

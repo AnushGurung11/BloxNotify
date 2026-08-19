@@ -27,7 +27,7 @@ String formatHistoryTime(DateTime dt) {
   return '$hour:$mm $ampm';
 }
 
-/// Shows the past 30 days of stock rotations (Normal + Mirage dealer
+/// Shows the past 7 days of stock rotations (Normal + Mirage dealer
 /// restocks) in the style of the bloxvalues history page: a "most frequent
 /// fruits" leaderboard, then day-grouped restocks with dealer badges and
 /// fruit chips.
@@ -136,7 +136,7 @@ class _HistoryView extends StatelessWidget {
             style: theme.textTheme.bodySmall,
           ),
           const SizedBox(height: 16),
-          Text('Most Frequent Fruits (Last 30 Days)',
+          Text('Most Frequent Fruits (Last 7 Days)',
               style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
           for (final entry in ranked)
@@ -160,7 +160,7 @@ class _HistoryView extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             'Showing the ${events.length} most recent restocks. '
-            'Older entries roll off after 30 days.',
+            'Older entries roll off after 7 days.',
             style: theme.textTheme.bodySmall,
           ),
         ],

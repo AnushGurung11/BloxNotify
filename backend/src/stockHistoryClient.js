@@ -10,7 +10,7 @@
  * Events are stock rotations: `type` is "Mirage" or "Regular" (the normal
  * dealer); `timestamp` is Unix seconds (UTC); `items` are the fruits on sale
  * with their Beli price, Robux price, image URL and detail page URL. The file
- * covers the last ~30 days.
+ * covers several weeks of rotations (the API serves only the last 7 days).
  *
  * Events are cached in memory for `cacheTtlMs`; stale data is served when a
  * refresh fails (the history file only changes a few times per day).

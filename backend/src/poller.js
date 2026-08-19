@@ -7,7 +7,7 @@ const { notifyStockChange } = require('./notifier');
 
 const DEFAULT_INTERVAL_MS = 90 * 1000; // every 90 seconds
 const MAX_HISTORY = 750; // hard cap on snapshots kept in the state file
-const HISTORY_WINDOW_DAYS = 30; // snapshots older than this are pruned
+const HISTORY_WINDOW_DAYS = 7; // snapshots older than this are pruned
 
 /**
  * Keeps only snapshots from the last `HISTORY_WINDOW_DAYS` days, newest

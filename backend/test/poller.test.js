@@ -108,7 +108,7 @@ describe('checkStockOnce', () => {
     );
   });
 
-  test('prunes history older than the 30-day window', async () => {
+  test('prunes history older than the 7-day window', async () => {
     const { HISTORY_WINDOW_DAYS } = require('../src/poller');
     const now = Date.parse('2026-08-19T12:00:00Z');
     const tooOld = new Date(
@@ -135,7 +135,7 @@ describe('checkStockOnce', () => {
     });
 
     const stored = JSON.parse(fs.readFileSync(stockFile, 'utf8'));
-    // New head entry + the still-recent snapshot; the 30-day-old one is gone.
+    // New head entry + the still-recent snapshot; the 7-day-old one is gone.
     expect(stored.history).toHaveLength(2);
     expect(stored.history.map((h) => h.fruits[0])).toEqual(['Old', 'RecentFruit']);
   });
